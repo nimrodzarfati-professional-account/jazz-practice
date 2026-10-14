@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Shed Engine",
+    "slug": "shed-engine",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shedengine.app"
+    },
+    "android": {
+      "package": "com.shedengine.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#16110E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-audio",
+      "expo-font",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#D49B35"
+        }
+      ]
+    ]
+  }
+}
