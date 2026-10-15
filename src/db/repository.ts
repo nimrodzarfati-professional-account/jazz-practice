@@ -1,9 +1,189 @@
+import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { ActiveStandard, Exercise, PitchKey } from '../types/models';
 
-const db = SQLite.openDatabaseSync('shed_engine_v2.db');
+interface SyncDb {
+  execSync(sql: string): void;
+  getFirstSync<T>(sql: string, params?: any[]): T | null;
+  getAllSync<T>(sql: string, params?: any[]): T[];
+  runSync(sql: string, params?: any[]): void;
+  prepareSync(sql: string): {
+    executeSync(params?: any[]): void;
+    finalizeSync(): void;
+  };
+}
+
+let dbInstance: SyncDb | null = null;
+
+function getDb(): SyncDb {
+  if (dbInstance) return dbInstance;
+
+  // Web & environments without SharedArrayBuffer: use persistent localStorage adapter
+  if (Platform.OS === 'web' || typeof SharedArrayBuffer === 'undefined') {
+    const STD_KEY = 'shed_v2_active_standard';
+    const EX_KEY = 'shed_v2_exercises';
+
+    dbInstance = {
+      execSync(_sql: string) {},
+      getFirstSync<T>(sql: string, _params?: any[]): T | null {
+        if (typeof localStorage === 'undefined') return null;
+        if (sql.includes('FROM active_standard')) {
+          if (sql.includes('COUNT(*)')) {
+            const raw = localStorage.getItem(STD_KEY);
+            return { count: raw ? 1 : 0 } as unknown as T;
+          }
+          const raw = localStorage.getItem(STD_KEY);
+          return raw ? JSON.parse(raw) : null;
+        }
+        if (sql.includes('FROM exercises')) {
+          if (sql.includes('COUNT(*)')) {
+            const raw = localStorage.getItem(EX_KEY);
+            const list = raw ? JSON.parse(raw) : [];
+            return { count: list.length } as unknown as T;
+          }
+        }
+        return null;
+      },
+      getAllSync<T>(sql: string, _params?: any[]): T[] {
+        if (typeof localStorage === 'undefined') return [];
+        if (sql.includes('FROM exercises')) {
+          const raw = localStorage.getItem(EX_KEY);
+          let list: any[] = raw ? JSON.parse(raw) : [];
+          if (sql.includes('WHERE inRotation = 1')) {
+            list = list.filter((e) => e.inRotation === 1 || e.inRotation === true);
+          }
+          if (sql.includes('ORDER BY inRotation DESC, basePriority DESC')) {
+            list = list.sort((a, b) => {
+              if (b.inRotation !== a.inRotation) return (b.inRotation ? 1 : 0) - (a.inRotation ? 1 : 0);
+              return (b.basePriority || 0) - (a.basePriority || 0);
+            });
+          }
+          return list as unknown as T[];
+        }
+        return [];
+      },
+      runSync(sql: string, params: any[] = []) {
+        if (typeof localStorage === 'undefined') return;
+        if (sql.includes('INSERT INTO active_standard')) {
+          const [id, title, defaultKey, startedAt, rotationCycleDays] = params;
+          const std = { id, title, defaultKey, startedAt, rotationCycleDays };
+          localStorage.setItem(STD_KEY, JSON.stringify(std));
+          return;
+        }
+        if (sql.includes('UPDATE active_standard')) {
+          const [title, defaultKey, startedAt, rotationCycleDays] = params;
+          const std = { id: 'std_1', title, defaultKey, startedAt, rotationCycleDays };
+          localStorage.setItem(STD_KEY, JSON.stringify(std));
+          return;
+        }
+        if (sql.includes('INSERT INTO exercises')) {
+          const [
+            id, title, description, context, category, inRotation,
+            durationMinutes, intensity, basePriority, currentBpm,
+            isKeyBased, masteredKeys, usesActiveStandard
+          ] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          list.push({
+            id, title, description, context, category, inRotation,
+            durationMinutes, intensity, basePriority, currentBpm,
+            isKeyBased, masteredKeys, usesActiveStandard,
+            lastPracticedAt: null, skippedCount: 0
+          });
+          localStorage.setItem(EX_KEY, JSON.stringify(list));
+          return;
+        }
+        if (sql.includes('UPDATE exercises SET inRotation = ? WHERE id = ?')) {
+          const [inRot, id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            item.inRotation = inRot;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
+          return;
+        }
+        if (sql.includes("SET category = 'MAINTENANCE'")) {
+          const [id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            item.category = 'MAINTENANCE';
+            item.usesActiveStandard = 1;
+            item.intensity = Math.max(1, (item.intensity || 3) - 1);
+            item.basePriority = 6;
+            item.skippedCount = 0;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
+          return;
+        }
+        if (sql.includes('SET currentBpm = ?, masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0')) {
+          const [bpm, keys, practicedAt, id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            item.currentBpm = bpm;
+            item.masteredKeys = keys;
+            item.lastPracticedAt = practicedAt;
+            item.skippedCount = 0;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
+          return;
+        }
+        if (sql.includes('SET currentBpm = ?, masteredKeys = ? WHERE id = ?')) {
+          const [bpm, keys, id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            item.currentBpm = bpm;
+            item.masteredKeys = keys;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
+          return;
+        }
+        if (sql.includes('DELETE FROM exercises WHERE id = ?')) {
+          const [id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          let list: any[] = raw ? JSON.parse(raw) : [];
+          list = list.filter((e) => e.id !== id);
+          localStorage.setItem(EX_KEY, JSON.stringify(list));
+          return;
+        }
+      },
+      prepareSync(sql: string) {
+        return {
+          executeSync(params: any[] = []) {
+            if (typeof localStorage === 'undefined') return;
+            if (sql.includes('skippedCount = skippedCount + 1')) {
+              const [id] = params;
+              const raw = localStorage.getItem(EX_KEY);
+              const list: any[] = raw ? JSON.parse(raw) : [];
+              const item = list.find((e) => e.id === id);
+              if (item) {
+                item.skippedCount = (item.skippedCount || 0) + 1;
+                localStorage.setItem(EX_KEY, JSON.stringify(list));
+              }
+            }
+          },
+          finalizeSync() {},
+        };
+      },
+    };
+
+    return dbInstance;
+  }
+
+  // Native SQLite on iOS / Android
+  dbInstance = SQLite.openDatabaseSync('shed_engine_v2.db');
+  return dbInstance;
+}
 
 export function initDatabase(): void {
+  const db = getDb();
   db.execSync(`
     CREATE TABLE IF NOT EXISTS active_standard (
       id TEXT PRIMARY KEY NOT NULL,
@@ -178,10 +358,10 @@ function mapRowToExercise(row: any): Exercise {
     basePriority: row.basePriority,
     currentBpm: row.currentBpm,
     isKeyBased: Boolean(row.isKeyBased),
-    masteredKeys: JSON.parse(row.masteredKeys || '[]'),
+    masteredKeys: typeof row.masteredKeys === 'string' ? JSON.parse(row.masteredKeys || '[]') : (row.masteredKeys || []),
     usesActiveStandard: Boolean(row.usesActiveStandard),
     lastPracticedAt: row.lastPracticedAt,
-    skippedCount: row.skippedCount,
+    skippedCount: row.skippedCount || 0,
   };
 }
 
@@ -190,6 +370,7 @@ function mapRowToExercise(row: any): Exercise {
  */
 export function getActiveStandard(): ActiveStandard {
   initDatabase();
+  const db = getDb();
   const row = db.getFirstSync<any>('SELECT * FROM active_standard LIMIT 1');
   if (!row) {
     return {
@@ -218,6 +399,7 @@ export function rotateActiveStandard(
   cycleDays: 7 | 10 | 14 = 14
 ): ActiveStandard {
   initDatabase();
+  const db = getDb();
   const nowIso = new Date().toISOString();
   db.runSync(
     `UPDATE active_standard
@@ -233,6 +415,7 @@ export function rotateActiveStandard(
  */
 export function getRotationExercises(): Exercise[] {
   initDatabase();
+  const db = getDb();
   const rows = db.getAllSync<any>('SELECT * FROM exercises WHERE inRotation = 1');
   return rows.map(mapRowToExercise);
 }
@@ -242,6 +425,7 @@ export function getRotationExercises(): Exercise[] {
  */
 export function getAllVaultExercises(): Exercise[] {
   initDatabase();
+  const db = getDb();
   const rows = db.getAllSync<any>('SELECT * FROM exercises ORDER BY inRotation DESC, basePriority DESC');
   return rows.map(mapRowToExercise);
 }
@@ -251,6 +435,7 @@ export function getAllVaultExercises(): Exercise[] {
  */
 export function toggleExerciseRotation(id: string, inRotation: boolean): void {
   initDatabase();
+  const db = getDb();
   db.runSync('UPDATE exercises SET inRotation = ? WHERE id = ?', [inRotation ? 1 : 0, id]);
 }
 
@@ -261,6 +446,7 @@ export function toggleExerciseRotation(id: string, inRotation: boolean): void {
  */
 export function graduateExerciseToMaintenance(id: string): void {
   initDatabase();
+  const db = getDb();
   db.runSync(
     `UPDATE exercises
      SET category = 'MAINTENANCE',
@@ -283,6 +469,7 @@ export function updateExerciseProgress(
   markPracticedNow: boolean
 ): void {
   initDatabase();
+  const db = getDb();
   if (markPracticedNow) {
     db.runSync(
       `UPDATE exercises
@@ -303,6 +490,7 @@ export function updateExerciseProgress(
  */
 export function incrementSkippedForCanceledSession(exerciseIds: string[]): void {
   initDatabase();
+  const db = getDb();
   const stmt = db.prepareSync('UPDATE exercises SET skippedCount = skippedCount + 1 WHERE id = ?');
   try {
     for (const id of exerciseIds) {
@@ -314,10 +502,11 @@ export function incrementSkippedForCanceledSession(exerciseIds: string[]): void 
 }
 
 /**
- * Add a new exercise to SQLite
+ * Add a new exercise to SQLite / persistent store
  */
 export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
   initDatabase();
+  const db = getDb();
   const id = `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   db.runSync(
     `INSERT INTO exercises (
@@ -349,5 +538,6 @@ export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
  */
 export function deleteExercise(id: string): void {
   initDatabase();
+  const db = getDb();
   db.runSync('DELETE FROM exercises WHERE id = ?', [id]);
 }
