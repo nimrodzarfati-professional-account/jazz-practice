@@ -1,56 +1,27 @@
-/**
- * StudioFader — Vertical mixing-board fader / slider
- *
- * Draggable vertical fader with a dark Bakelite cap, brass tick marks,
- * smooth reanimated dragging, and haptic ticks at each step boundary.
- */
-import React, { useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useRef } from 'react';
 import {
-  GestureDetector,
-  Gesture,
-} from 'react-native-gesture-handler';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  runOnJS,
-  withSpring,
-} from 'react-native-reanimated';
+  View,
+  Text,
+  StyleSheet,
+  PanResponder,
+  GestureResponderEvent,
+  PanResponderGestureState,
+  Pressable,
+} from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, typography } from '../theme/tokens';
+import { useTheme } from '../theme/ThemeContext';
 
-/* ------------------------------------------------------------------ */
-/*  Props                                                              */
-/* ------------------------------------------------------------------ */
-
-export interface StudioFaderProps {
+interface StudioFaderProps {
   label: string;
   value: number;
   min: number;
   max: number;
   step: number;
   onChange: (value: number) => void;
-  /** Unit label displayed after the value (e.g. 'min', 'bpm') */
   unit?: string;
-  /** Accent color for the fill and tick highlight. Defaults to Brass. */
   accentColor?: string;
-  /** Total height of the fader track. Default: 250 */
   height?: number;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
-
-const TRACK_WIDTH = 12;
-const CAP_WIDTH = 48;
-const CAP_HEIGHT = 20;
-const TICK_WIDTH = 24;
-const DEFAULT_HEIGHT = 250;
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
 
 export const StudioFader: React.FC<StudioFaderProps> = ({
   label,
@@ -60,240 +31,223 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
   step,
   onChange,
   unit = '',
-  accentColor = colors.secondary,
-  height = DEFAULT_HEIGHT,
+  accentColor,
+  height = 180,
 }) => {
-  /* ---- derived values ---- */
-  const range = max - min;
-  const totalSteps = Math.round(range / step);
-  const trackHeight = height;
+  const { colors, typography } = useTheme();
+  const faderAccent = accentColor || colors.tertiary;
 
-  /** Map value → pixel Y offset from TOP of track. min is at bottom, max at top. */
-  const valueToY = useCallback(
-    (v: number) => {
-      const ratio = (v - min) / range;
-      return trackHeight - ratio * trackHeight;
-    },
-    [min, range, trackHeight],
-  );
+  const clampValue = (val: number) => {
+    const stepped = Math.round((val - min) / step) * step + min;
+    return Math.max(min, Math.min(max, stepped));
+  };
 
-  /** Map pixel Y offset → snapped value. */
-  const yToValue = useCallback(
-    (y: number) => {
-      const clamped = Math.max(0, Math.min(trackHeight, y));
-      const ratio = 1 - clamped / trackHeight;
-      const raw = min + ratio * range;
-      // Snap to step
-      return Math.round(raw / step) * step;
-    },
-    [min, range, step, trackHeight],
-  );
-
-  /* ---- gesture shared values ---- */
-  const translateY = useSharedValue(valueToY(value));
-  const startY = useSharedValue(0);
-  const lastStepValue = useRef(value);
-
-  /** Callback invoked on JS thread to fire haptic + onChange */
-  const emitChange = useCallback(
-    (newVal: number) => {
-      if (newVal !== lastStepValue.current) {
-        lastStepValue.current = newVal;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onChange(newVal);
-      }
-    },
-    [onChange],
-  );
-
-  /* ---- Pan gesture ---- */
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .onStart(() => {
-          startY.value = translateY.value;
-        })
-        .onUpdate((event) => {
-          const nextY = Math.max(
-            0,
-            Math.min(trackHeight, startY.value + event.translationY),
-          );
-          translateY.value = nextY;
-          const snapped = yToValue(nextY);
-          runOnJS(emitChange)(snapped);
-        })
-        .onEnd(() => {
-          // Snap cap to nearest step position
-          const snapped = yToValue(translateY.value);
-          translateY.value = withSpring(valueToY(snapped), {
-            damping: 20,
-            stiffness: 300,
-          });
-        }),
-    [trackHeight, yToValue, valueToY, emitChange, translateY, startY],
-  );
-
-  /* ---- animated cap style ---- */
-  const animatedCapStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value - CAP_HEIGHT / 2 }],
-  }));
-
-  /* ---- animated fill style (grows from bottom) ---- */
-  const animatedFillStyle = useAnimatedStyle(() => ({
-    height: trackHeight - translateY.value,
-  }));
-
-  /* ---- tick marks ---- */
-  const ticks = useMemo(() => {
-    const arr: number[] = [];
-    // Show ticks at every step, but if there are too many, thin them out
-    const tickStep = totalSteps > 20 ? Math.ceil(totalSteps / 10) : 1;
-    for (let i = 0; i <= totalSteps; i += tickStep) {
-      arr.push(i);
+  const handleTrackPress = (evt: GestureResponderEvent) => {
+    const { locationY } = evt.nativeEvent;
+    // Top is max, bottom is min
+    const fraction = 1 - Math.max(0, Math.min(1, locationY / height));
+    const rawVal = min + fraction * (max - min);
+    const newVal = clampValue(rawVal);
+    if (newVal !== value) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onChange(newVal);
     }
-    return arr;
-  }, [totalSteps]);
+  };
 
-  /* ---- formatted display value ---- */
-  const displayValue = unit ? `${value}${unit}` : `${value}`;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        // Delta Y inverted: dragging up increases value
+        const deltaFraction = -gestureState.dy / height;
+        const rawVal = value + deltaFraction * (max - min);
+        const newVal = clampValue(rawVal);
+        if (newVal !== value) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onChange(newVal);
+        }
+      },
+    })
+  ).current;
 
-  /* ---- Sync translateY when value prop changes externally ---- */
-  React.useEffect(() => {
-    translateY.value = withSpring(valueToY(value), {
-      damping: 20,
-      stiffness: 300,
-    });
-    lastStepValue.current = value;
-  }, [value, valueToY, translateY]);
+  // Percentage from bottom (0% at min, 100% at max)
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  // Cap position from top
+  const capTop = height - (percent / 100) * (height - 28) - 28;
+
+  // Tick marks
+  const tickCount = 6;
+  const ticks = Array.from({ length: tickCount }, (_, i) => i);
 
   return (
-    <View style={[styles.container, { height: trackHeight + 80 }]}>
-      {/* Value readout */}
-      <Text style={[styles.valueReadout, { color: accentColor }]}>
-        {displayValue}
-      </Text>
+    <View style={styles.faderContainer}>
+      {/* Top Value Readout */}
+      <View
+        style={[
+          styles.readoutBox,
+          {
+            backgroundColor: colors.cardSurface,
+            borderColor: colors.inkBlack,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.valueText,
+            { fontFamily: typography.fontMonoBold, color: colors.inkBlack },
+          ]}
+        >
+          {value}
+          {unit ? ` ${unit}` : ''}
+        </Text>
+      </View>
 
-      {/* Track + fader assembly */}
-      <GestureDetector gesture={panGesture}>
-        <View style={[styles.trackContainer, { height: trackHeight }]}>
-          {/* Tick marks (left side) */}
-          <View style={styles.tickColumn}>
-            {ticks.map((tickIdx) => {
-              const y = valueToY(min + tickIdx * step);
-              return (
-                <View
-                  key={tickIdx}
-                  style={[
-                    styles.tick,
-                    {
-                      top: y - 1,
-                      backgroundColor: accentColor,
-                    },
-                  ]}
-                />
-              );
-            })}
-          </View>
-
-          {/* Track groove */}
-          <View style={styles.trackGroove}>
-            {/* Fill region */}
-            <Animated.View
+      {/* Main Track & Cap Area */}
+      <View style={[styles.trackWrapper, { height }]}>
+        {/* Analog Tick Marks on Left and Right */}
+        <View style={styles.ticksColumn}>
+          {ticks.map((t) => (
+            <View
+              key={`tick-${t}`}
               style={[
-                styles.trackFill,
-                { backgroundColor: accentColor },
-                animatedFillStyle,
+                styles.tickLine,
+                { backgroundColor: t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted },
               ]}
             />
-          </View>
-
-          {/* Fader cap */}
-          <Animated.View style={[styles.faderCap, animatedCapStyle]} />
+          ))}
         </View>
-      </GestureDetector>
 
-      {/* Label */}
-      <Text style={styles.label}>{label}</Text>
+        {/* Fader Slot */}
+        <Pressable
+          style={[
+            styles.trackSlot,
+            {
+              height,
+              backgroundColor: colors.inkBlack,
+              borderColor: colors.inkBlack,
+            },
+          ]}
+          onPress={handleTrackPress}
+        >
+          {/* Active Fill from bottom */}
+          <View
+            style={[
+              styles.trackFill,
+              {
+                height: `${percent}%`,
+                backgroundColor: faderAccent,
+              },
+            ]}
+          />
+
+          {/* Draggable Studio Bakelite Fader Cap */}
+          <View
+            {...panResponder.panHandlers}
+            style={[
+              styles.faderCap,
+              {
+                top: Math.max(0, Math.min(height - 28, capTop)),
+                backgroundColor: colors.recessedSurface,
+                borderColor: colors.inkBlack,
+              },
+            ]}
+          >
+            {/* Center Indent Marker */}
+            <View style={[styles.capIndicator, { backgroundColor: colors.primary }]} />
+          </View>
+        </Pressable>
+
+        <View style={styles.ticksColumn}>
+          {ticks.map((t) => (
+            <View
+              key={`tick-r-${t}`}
+              style={[
+                styles.tickLine,
+                { backgroundColor: t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted },
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* Bottom Label */}
+      <Text
+        style={[
+          styles.label,
+          { fontFamily: typography.fontStamp, color: colors.inkBlack },
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  Styles                                                             */
-/* ------------------------------------------------------------------ */
-
 const styles = StyleSheet.create({
-  container: {
+  faderContainer: {
     alignItems: 'center',
-    width: 80,
+    paddingVertical: 6,
+    flex: 1,
   },
-  valueReadout: {
-    ...typography.mono,
-    fontSize: 14,
+  readoutBox: {
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginBottom: 8,
-    textAlign: 'center',
+    minWidth: 54,
+    alignItems: 'center',
   },
-  trackContainer: {
-    width: 60,
+  valueText: {
+    fontSize: 13,
+    letterSpacing: 0.5,
+  },
+  trackWrapper: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    justifyContent: 'center',
-  },
-  /* Tick marks column */
-  tickColumn: {
-    width: TICK_WIDTH,
+    alignItems: 'center',
     position: 'relative',
+    paddingHorizontal: 6,
   },
-  tick: {
-    position: 'absolute',
-    left: 0,
-    width: TICK_WIDTH,
-    height: 2,
-    borderRadius: 0,
-    opacity: 0.5,
+  ticksColumn: {
+    height: '100%',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    width: 10,
   },
-  /* Dark groove track */
-  trackGroove: {
-    width: TRACK_WIDTH,
-    backgroundColor: colors.background,
+  tickLine: {
+    width: 8,
+    height: 1.5,
+  },
+  trackSlot: {
+    width: 22,
     borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: 0,
-    overflow: 'hidden',
+    position: 'relative',
+    alignItems: 'center',
     justifyContent: 'flex-end',
+    marginHorizontal: 4,
   },
   trackFill: {
     width: '100%',
-    borderRadius: 0,
+    opacity: 0.8,
   },
-  /* Bakelite fader cap */
   faderCap: {
     position: 'absolute',
-    left: (60 - CAP_WIDTH) / 2,
-    top: 0,
-    width: CAP_WIDTH,
-    height: CAP_HEIGHT,
-    backgroundColor: '#2A2320',
+    left: -12,
+    width: 42,
+    height: 26,
     borderWidth: 2,
-    borderColor: colors.border,
-    borderRadius: 0,
-    // Subtle center groove line via borders
-    borderTopColor: '#3A3530',
-    borderBottomColor: '#1A1510',
-    shadowColor: colors.border,
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  capIndicator: {
+    width: 28,
+    height: 2,
   },
   label: {
-    ...typography.stamp,
+    marginTop: 8,
     fontSize: 11,
-    color: colors.textMuted,
-    marginTop: 10,
-    textAlign: 'center',
     letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
   },
 });
-
-export default StudioFader;

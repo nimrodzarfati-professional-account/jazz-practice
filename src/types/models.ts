@@ -1,107 +1,113 @@
-// Exercise context
-export type ExerciseContext = 'soloing' | 'comping';
+/**
+ * Domain Models for Shed Engine V2
+ * 
+ * Strict architectural types for the All-Cream Vintage Press Jazz Practice System:
+ * - 1-2 Week Active Standard cycle
+ * - In-Rotation vs. Vault Repertoire
+ * - Graduation from New Concept / Transcribing -> Maintenance
+ * - Exercise-driven timer durations
+ */
 
-// Exercise category
-export type ExerciseCategory = 'maintenance' | 'transcribing' | 'new_concept';
+// Pitch keys in Circle of Fifths order
+export type PitchKey =
+  | 'C'
+  | 'F'
+  | 'Bb'
+  | 'Eb'
+  | 'Ab'
+  | 'Db'
+  | 'Gb'
+  | 'B'
+  | 'E'
+  | 'A'
+  | 'D'
+  | 'G';
 
-// The 12 musical keys
-export type MusicalKey = 'C' | 'F' | 'Bb' | 'Eb' | 'Ab' | 'Db' | 'Gb' | 'B' | 'E' | 'A' | 'D' | 'G';
+export const CIRCLE_OF_FIFTHS: PitchKey[] = [
+  'C',
+  'F',
+  'Bb',
+  'Eb',
+  'Ab',
+  'Db',
+  'Gb',
+  'B',
+  'E',
+  'A',
+  'D',
+  'G',
+];
 
-// All 12 keys in circle of fifths order
-export const CIRCLE_OF_FIFTHS: MusicalKey[] = ['C', 'G', 'D', 'A', 'E', 'B', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F'];
+// Backward compatibility alias
+export type MusicalKey = PitchKey;
 
-// Key completion state for the stamp grid
-export interface KeyStampState {
-  key: MusicalKey;
-  stamped: boolean;
-  bpm: number | null;
-  stampedAt: string | null; // ISO date
+// Musical context: Soloing vs. Comping
+export type MusicalContext = 'SOLOING' | 'COMPING';
+export type ExerciseContext = MusicalContext;
+
+// Exercise categories
+export type ExerciseCategory = 'MAINTENANCE' | 'TRANSCRIBING' | 'NEW_CONCEPT';
+
+/**
+ * 1-2 Week Active Jazz Standard for ongoing maintenance & harmonic grounding
+ */
+export interface ActiveStandard {
+  id: string;
+  title: string;
+  defaultKey: PitchKey;
+  startedAt: string; // ISO date string
+  rotationCycleDays: 7 | 10 | 14 | number;
 }
 
-// Core Exercise model
+/**
+ * Core Exercise definition
+ */
 export interface Exercise {
   id: string;
   title: string;
   description: string;
-  context: ExerciseContext;
+  context: MusicalContext;
   category: ExerciseCategory;
+  inRotation: boolean;
+  durationMinutes: number; // Timer duration dictated directly by the exercise
+  intensity: number; // 1-5 (Chop / Brain Battery)
   basePriority: number; // 1-10
-  defaultDurationMinutes: number;
-  targetBpm: number | null;
-  keyStamps: KeyStampState[];
-  lastPracticedAt: string | null; // ISO date
-  createdAt: string;
-  updatedAt: string;
-  isArchived: boolean;
+  currentBpm: number;
+  isKeyBased: boolean; // If false, 12-key stamp pad is hidden & key deficit ignored
+  masteredKeys: PitchKey[];
+  usesActiveStandard: boolean; // If true or MAINTENANCE, bound to active standard
+  lastPracticedAt: string | null;
+  skippedCount: number;
 }
 
-// Intensity/energy level
-export type IntensityLevel = 1 | 2 | 3 | 4 | 5;
+/**
+ * Scored exercise for the practice queue (output of SchedulerEngine)
+ */
+export interface ScoredExercise extends Exercise {
+  urgencyScore: number;
+  allocatedMinutes: number;
+  assignedStandardTitle?: string;
+}
 
-// Session configuration (from the pre-session faders)
+/**
+ * Pre-session configuration
+ */
 export interface SessionConfig {
   availableMinutes: number; // 15-120
-  intensity: IntensityLevel; // 1-5 (Chop/Brain Battery)
+  intensity: number; // 1-5
+  contextFilter?: 'ALL' | MusicalContext;
 }
 
-// A single block within a practice session
-export interface SessionBlock {
-  exerciseId: string;
-  exercise: Exercise;
-  durationMinutes: number;
-  targetKey: MusicalKey | null;
-  targetBpm: number | null;
-  completed: boolean;
-  skipped: boolean;
-}
-
-// A complete practice session
-export interface PracticeSession {
-  id: string;
-  config: SessionConfig;
-  blocks: SessionBlock[];
-  scheduledAt: string; // ISO date
-  startedAt: string | null;
-  completedAt: string | null;
-  cancelled: boolean;
-  totalDurationMinutes: number;
-}
-
-// Alarm schedule
-export interface AlarmSchedule {
-  id: string;
-  dayOfWeek: number; // 0=Sunday, 6=Saturday
-  hour: number;
-  minute: number;
-  enabled: boolean;
-  label: string;
-  defaultSessionMinutes: number;
-  defaultIntensity: IntensityLevel;
-}
-
-// Session log entry (for history/analytics)
+/**
+ * Session log entry for history
+ */
 export interface SessionLogEntry {
   id: string;
-  sessionId: string;
   exerciseId: string;
+  exerciseTitle: string;
   durationMinutes: number;
-  keysWorked: MusicalKey[];
-  bpmAchieved: number | null;
-  notes: string;
+  bpmAchieved: number;
+  masteredKeys: PitchKey[];
   practicedAt: string;
-}
-
-// Category decay rates (how quickly exercises become urgent when neglected)
-export const CATEGORY_DECAY_RATES: Record<ExerciseCategory, number> = {
-  maintenance: 1.0,    // Linear decay - needs regular upkeep
-  transcribing: 1.5,   // Faster decay - momentum is critical
-  new_concept: 0.7,    // Slower decay - these can simmer
-};
-
-// Scheduler scoring result
-export interface ScoredExercise {
-  exercise: Exercise;
-  urgencyScore: number;
-  suggestedDuration: number;
-  suggestedKey: MusicalKey | null;
+  notes?: string;
 }

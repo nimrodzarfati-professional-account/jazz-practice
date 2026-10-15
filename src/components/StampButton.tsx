@@ -1,177 +1,148 @@
-/**
- * StampButton — Vintage rubber stamp press button
- *
- * Pressable with a press-in animation: the hard offset shadow shrinks
- * from 3px → 1px to simulate a stamp being pressed onto paper.
- * Triggers expo-haptics on press. Oswald bold uppercase text.
- */
-import React, { useCallback, useRef } from 'react';
+import React, { useState } from 'react';
 import {
-  Pressable,
   Text,
+  Pressable,
+  StyleSheet,
   ViewStyle,
-  TextStyle,
-  Animated,
+  View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, typography } from '../theme/tokens';
-
-/* ------------------------------------------------------------------ */
-/*  Props                                                              */
-/* ------------------------------------------------------------------ */
+import { useTheme } from '../theme/ThemeContext';
 
 export interface StampButtonProps {
   label: string;
   onPress: () => void;
-  /** Accent color mapping: primary=Sienna, secondary=Brass, alert=Oxblood */
-  variant: 'primary' | 'secondary' | 'alert';
-  /** Button size preset. Default: 'md' */
+  variant?: 'primary' | 'secondary' | 'tertiary' | 'alert';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
-  /** Haptic feedback weight. Default: 'medium' */
-  hapticStyle?: 'light' | 'medium' | 'heavy';
+  style?: ViewStyle;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Variant → color map                                                */
-/* ------------------------------------------------------------------ */
-
-const VARIANT_COLORS: Record<StampButtonProps['variant'], string> = {
-  primary: colors.primary,   // #D95D39
-  secondary: colors.secondary, // #D49B35
-  alert: colors.alert,       // #9E2A2B
-};
-
-/* ------------------------------------------------------------------ */
-/*  Size presets                                                       */
-/* ------------------------------------------------------------------ */
-
-interface SizePreset {
-  paddingVertical: number;
-  paddingHorizontal: number;
-  fontSize: number;
-  letterSpacing: number;
-}
-
-const SIZE_PRESETS: Record<NonNullable<StampButtonProps['size']>, SizePreset> = {
-  sm: { paddingVertical: 6, paddingHorizontal: 14, fontSize: 11, letterSpacing: 1.5 },
-  md: { paddingVertical: 10, paddingHorizontal: 22, fontSize: 14, letterSpacing: 2 },
-  lg: { paddingVertical: 14, paddingHorizontal: 32, fontSize: 18, letterSpacing: 2.5 },
-};
-
-/* ------------------------------------------------------------------ */
-/*  Haptic map                                                         */
-/* ------------------------------------------------------------------ */
-
-const HAPTIC_MAP: Record<
-  NonNullable<StampButtonProps['hapticStyle']>,
-  Haptics.ImpactFeedbackStyle
-> = {
-  light: Haptics.ImpactFeedbackStyle.Light,
-  medium: Haptics.ImpactFeedbackStyle.Medium,
-  heavy: Haptics.ImpactFeedbackStyle.Heavy,
-};
-
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
 
 export const StampButton: React.FC<StampButtonProps> = ({
   label,
   onPress,
-  variant,
+  variant = 'primary',
   size = 'md',
   disabled = false,
-  hapticStyle = 'medium',
+  style,
 }) => {
-  const offsetAnim = useRef(new Animated.Value(3)).current;
+  const { colors, typography } = useTheme();
+  const [isPressed, setIsPressed] = useState(false);
 
-  const bg = VARIANT_COLORS[variant];
-  const preset = SIZE_PRESETS[size];
+  const getBackgroundColor = () => {
+    if (disabled) return colors.disabled;
+    switch (variant) {
+      case 'primary':
+        return colors.primary;
+      case 'secondary':
+        return colors.secondary;
+      case 'tertiary':
+        return colors.recessedSurface;
+      case 'alert':
+        return colors.secondary;
+      default:
+        return colors.primary;
+    }
+  };
 
-  const handlePressIn = useCallback(() => {
-    Animated.timing(offsetAnim, {
-      toValue: 1,
-      duration: 60,
-      useNativeDriver: false,
-    }).start();
-  }, [offsetAnim]);
+  const getTextColor = () => {
+    if (disabled) return colors.inkMuted;
+    if (variant === 'tertiary') return colors.inkBlack;
+    return colors.cardSurface;
+  };
 
-  const handlePressOut = useCallback(() => {
-    Animated.timing(offsetAnim, {
-      toValue: 3,
-      duration: 100,
-      useNativeDriver: false,
-    }).start();
-  }, [offsetAnim]);
-
-  const handlePress = useCallback(() => {
+  const handlePressIn = () => {
     if (disabled) return;
-    Haptics.impactAsync(HAPTIC_MAP[hapticStyle]);
+    setIsPressed(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handlePressOut = () => {
+    setIsPressed(false);
+  };
+
+  const handlePress = () => {
+    if (disabled) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress();
-  }, [disabled, hapticStyle, onPress]);
-
-  const animatedShadow: Animated.WithAnimatedObject<ViewStyle> = {
-    shadowColor: colors.border,
-    shadowOffset: {
-      width: offsetAnim,
-      height: offsetAnim,
-    },
-    shadowOpacity: 1,
-    shadowRadius: 0,
-    elevation: 3,
   };
 
-  const animatedTranslate = {
-    transform: [
-      {
-        translateX: offsetAnim.interpolate({
-          inputRange: [1, 3],
-          outputRange: [2, 0],
-        }),
-      },
-      {
-        translateY: offsetAnim.interpolate({
-          inputRange: [1, 3],
-          outputRange: [2, 0],
-        }),
-      },
-    ],
-  };
-
-  const buttonStyle: ViewStyle = {
-    backgroundColor: disabled ? colors.textMuted : bg,
-    paddingVertical: preset.paddingVertical,
-    paddingHorizontal: preset.paddingHorizontal,
-    borderRadius: 0,
-    borderWidth: 2,
-    borderColor: colors.border,
-  };
-
-  const labelStyle: TextStyle = {
-    ...typography.stamp,
-    fontSize: preset.fontSize,
-    letterSpacing: preset.letterSpacing,
-    color: colors.text,
-    textAlign: 'center',
-  };
+  const shadowOffset = isPressed ? 1 : 3;
 
   return (
-    <Pressable
-      onPress={handlePress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      disabled={disabled}
-    >
-      <Animated.View style={[buttonStyle, animatedShadow, animatedTranslate]}>
-        <Text style={labelStyle}>{label}</Text>
-      </Animated.View>
-    </Pressable>
+    <View style={[styles.wrapper, { marginRight: shadowOffset, marginBottom: shadowOffset }]}>
+      {/* Hard ink shadow underneath */}
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: colors.inkBlack,
+            top: shadowOffset,
+            left: shadowOffset,
+            right: -shadowOffset,
+            bottom: -shadowOffset,
+          },
+        ]}
+      />
+
+      <Pressable
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        onPress={handlePress}
+        disabled={disabled}
+        style={[
+          styles.button,
+          styles[size],
+          {
+            backgroundColor: getBackgroundColor(),
+            borderColor: colors.inkBlack,
+            opacity: disabled ? 0.6 : 1,
+          },
+          style,
+        ]}
+      >
+        <Text
+          style={[
+            styles.label,
+            {
+              fontFamily: typography.fontStamp,
+              color: getTextColor(),
+              fontSize: size === 'sm' ? 11 : size === 'lg' ? 14 : 12,
+            },
+          ]}
+        >
+          {label}
+        </Text>
+      </Pressable>
+    </View>
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  (no additional StyleSheet needed — everything is inline/animated)  */
-/* ------------------------------------------------------------------ */
-
-export default StampButton;
+const styles = StyleSheet.create({
+  wrapper: {
+    position: 'relative',
+  },
+  button: {
+    borderWidth: 2,
+    borderRadius: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sm: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  md: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  lg: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  label: {
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+});

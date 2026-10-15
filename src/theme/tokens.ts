@@ -1,53 +1,50 @@
 import { TextStyle } from 'react-native';
 
+export const fontFamilies = {
+  heading: 'Fraunces_700Bold',
+  headingItalic: 'Fraunces_700Bold_Italic',
+  display: 'Fraunces_900Black',
+  stamp: 'Oswald_700Bold',
+  mono: 'CourierPrime_400Regular',
+  monoBold: 'CourierPrime_700Bold',
+} as const;
+
 export const colors = {
-  // Backgrounds
-  bgPrimary: '#16110E',       // Deep Mahogany / Espresso
-  bgSurface: '#241B16',       // Smoky Walnut
-  bgCard: '#E8DCC4',          // Aged Manuscript Paper
-  bgCardDark: '#2E221A',      // Darker card variant
+  // Core V2 All-Cream Vintage Press Palette
+  inkBlack: '#181512',          // Hard stamp ink / borders / deep shadows
+  cardSurface: '#F4EFE6',       // Warm Aged Manuscript Paper / Index card
+  recessedSurface: '#DDD2BC',   // Recessed tone well
+  canvasBg: '#16110E',          // Deep Mahogany background
+  primary: '#D95D39',           // Autumn Burnt Sienna
+  secondary: '#9E2A2B',         // Vintage Oxblood
+  tertiary: '#D49B35',          // Saxophone Brass / Amber
+  inkMuted: '#7A6B5D',          // Faded Tan / Muted ink
 
-  // Accents
-  accentPrimary: '#D95D39',   // Autumn Burnt Sienna
-  accentSecondary: '#D49B35', // Saxophone Brass / Warm Amber
-  accentTertiary: '#6B705C',  // Autumn Olive / Tweed
-  accentAlert: '#9E2A2B',     // Vintage Oxblood
-
-  // Text
-  textPrimary: '#F4EFE6',     // Warm Cream
-  textSecondary: '#A69686',   // Faded Tan
-  textDark: '#1A1412',        // Dark ink (on light cards)
-  textMuted: '#7A6B5D',       // Muted label text
-
-  // Borders & Shadows
-  border: '#181512',          // Hard border color
-  borderLight: '#3A2F26',     // Subtle border for dark surfaces
-  shadowHard: '#0D0A08',      // Hard offset shadow color
-
-  // Semantic
-  soloing: '#D95D39',         // Burnt Sienna for Soloing context
-  comping: '#D49B35',         // Brass for Comping context
-  maintenance: '#6B705C',     // Olive for Maintenance category
-  transcribing: '#D49B35',    // Brass for Transcribing category
-  newConcept: '#D95D39',      // Sienna for New Concept category
-
-  // States
-  stamped: '#9E2A2B',         // Ink stamp color (Oxblood)
-  stampedFaded: 'rgba(158, 42, 43, 0.3)', // Faded stamp ghost
-  disabled: '#4A3D32',        // Disabled elements
-
-  // Aliases for convenience across components
-  primary: '#D95D39',
-  secondary: '#D49B35',
-  tertiary: '#6B705C',
-  alert: '#9E2A2B',
-  surface: '#241B16',
-  card: '#E8DCC4',
-  background: '#16110E',
-  text: '#F4EFE6',
-
-  // Warm glow
-  amberGlow: 'rgba(212, 155, 53, 0.15)', // Amber backlight glow
+  // Legacy & Semantic Aliases
+  bgPrimary: '#16110E',
+  bgSurface: '#241B16',
+  bgCard: '#F4EFE6',
+  bgCardDark: '#2E221A',
+  accentPrimary: '#D95D39',
+  accentSecondary: '#D49B35',
+  accentTertiary: '#6B705C',
+  accentAlert: '#9E2A2B',
+  textPrimary: '#F4EFE6',
+  textSecondary: '#A69686',
+  textDark: '#181512',
+  textMuted: '#7A6B5D',
+  border: '#181512',
+  borderLight: '#3A2F26',
+  shadowHard: '#0D0A08',
+  soloing: '#D95D39',
+  comping: '#D49B35',
+  maintenance: '#6B705C',
+  transcribing: '#D49B35',
+  newConcept: '#D95D39',
+  stamped: '#9E2A2B',
+  stampedFaded: 'rgba(158, 42, 43, 0.3)',
+  disabled: '#4A3D32',
+  amberGlow: 'rgba(212, 155, 53, 0.15)',
   amberGlowStrong: 'rgba(212, 155, 53, 0.35)',
 } as const;
 
@@ -66,8 +63,7 @@ export const borderWidths = {
   thick: 3,
 } as const;
 
-/** Hard offset shadow helper (vintage press style, no blur) */
-export function hardShadow(offset: number = 4, color: string = colors.shadowHard) {
+export function hardShadow(offset: number = 4, color: string = colors.inkBlack) {
   return {
     shadowColor: color,
     shadowOffset: { width: offset, height: offset },
@@ -78,7 +74,6 @@ export function hardShadow(offset: number = 4, color: string = colors.shadowHard
 }
 
 export const shadows = {
-  // Hard offset shadows (no blur, vintage press style)
   card: hardShadow(4),
   cardLifted: hardShadow(6),
   button: hardShadow(3),
@@ -92,60 +87,40 @@ export const shadows = {
   },
 } as const;
 
-// Font family constants (loaded via @expo-google-fonts)
-export const fontFamilies = {
-  heading: 'Fraunces_700Bold',
-  headingItalic: 'Fraunces_700Bold_Italic',
-  display: 'Fraunces_900Black',
-  stamp: 'Oswald_700Bold',
-  mono: 'CourierPrime_400Regular',
-  monoBold: 'CourierPrime_700Bold',
-} as const;
+export const typography = {
+  // Font Family References (Used across V2 components)
+  fontStamp: fontFamilies.stamp,
+  fontMonoBold: fontFamilies.monoBold,
+  fontMono: fontFamilies.mono,
+  fontDisplay: fontFamilies.display,
+  fontHeading: fontFamilies.heading,
 
-export const typography: Record<string, TextStyle> = {
-  // Base families
-  mono: {
-    fontFamily: fontFamilies.mono,
-    color: colors.textPrimary,
-  },
-  stamp: {
-    fontFamily: fontFamilies.stamp,
-    textTransform: 'uppercase',
-    letterSpacing: 2,
-    color: colors.textPrimary,
-  },
-  heading: {
-    fontFamily: fontFamilies.heading,
-    color: colors.textPrimary,
-  },
-  // Display - album cover title size
+  // Text Styles
   displayLarge: {
     fontFamily: fontFamilies.display,
     fontSize: 36,
     lineHeight: 40,
     letterSpacing: -0.5,
     color: colors.textPrimary,
-  },
-  // Heading - exercise titles
+  } as TextStyle,
   headingLarge: {
     fontFamily: fontFamilies.heading,
     fontSize: 28,
     lineHeight: 34,
     color: colors.textPrimary,
-  },
+  } as TextStyle,
   headingMedium: {
     fontFamily: fontFamilies.heading,
     fontSize: 22,
     lineHeight: 28,
     color: colors.textPrimary,
-  },
+  } as TextStyle,
   headingSmall: {
     fontFamily: fontFamilies.heading,
     fontSize: 18,
     lineHeight: 24,
     color: colors.textPrimary,
-  },
-  // Stamp - Blue Note category badges (uppercase, wide tracking)
+  } as TextStyle,
   stampLarge: {
     fontFamily: fontFamilies.stamp,
     fontSize: 14,
@@ -153,7 +128,7 @@ export const typography: Record<string, TextStyle> = {
     letterSpacing: 3,
     textTransform: 'uppercase',
     color: colors.textPrimary,
-  },
+  } as TextStyle,
   stampSmall: {
     fontFamily: fontFamilies.stamp,
     fontSize: 11,
@@ -161,40 +136,37 @@ export const typography: Record<string, TextStyle> = {
     letterSpacing: 2.5,
     textTransform: 'uppercase',
     color: colors.textSecondary,
-  },
-  // Mono - typewriter / tape counter
+  } as TextStyle,
   monoLarge: {
     fontFamily: fontFamilies.mono,
     fontSize: 40,
     lineHeight: 48,
     color: colors.accentSecondary,
-  },
+  } as TextStyle,
   monoMedium: {
     fontFamily: fontFamilies.mono,
     fontSize: 18,
     lineHeight: 24,
     color: colors.textSecondary,
-  },
+  } as TextStyle,
   monoSmall: {
     fontFamily: fontFamilies.mono,
     fontSize: 13,
     lineHeight: 18,
     color: colors.textSecondary,
-  },
-  // Body text
+  } as TextStyle,
   body: {
     fontFamily: fontFamilies.mono,
     fontSize: 15,
     lineHeight: 22,
     color: colors.textPrimary,
-  },
+  } as TextStyle,
   bodySmall: {
     fontFamily: fontFamilies.mono,
     fontSize: 13,
     lineHeight: 18,
     color: colors.textSecondary,
-  },
-  // Labels
+  } as TextStyle,
   label: {
     fontFamily: fontFamilies.stamp,
     fontSize: 12,
@@ -202,5 +174,5 @@ export const typography: Record<string, TextStyle> = {
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     color: colors.textMuted,
-  },
+  } as TextStyle,
 } as const;

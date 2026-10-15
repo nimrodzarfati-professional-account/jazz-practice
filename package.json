@@ -6,6 +6,7 @@
     "@expo-google-fonts/courier-prime": "^0.4.1",
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/oswald": "^0.4.2",
+    "@notifee/react-native": "^9.1.8",
     "@shopify/react-native-skia": "2.6.2",
     "@supabase/supabase-js": "^2.117.3",
     "expo": "~57.0.28",

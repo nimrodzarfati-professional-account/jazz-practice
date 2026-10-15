@@ -1,66 +1,59 @@
-/**
- * CreamBlock — Aged manuscript / index card surface
- *
- * A reusable card component with sharp edges, hard offset shadows,
- * and two variants: light (aged paper) and dark (smoky walnut).
- */
-import React from 'react';
-import { View, ViewStyle, StyleSheet, StyleProp } from 'react-native';
-import { colors, hardShadow } from '../theme/tokens';
+import React, { ReactNode } from 'react';
+import { View, StyleSheet, ViewStyle } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
-/* ------------------------------------------------------------------ */
-/*  Props                                                              */
-/* ------------------------------------------------------------------ */
-
-export interface CreamBlockProps {
-  /** Visual variant: light = aged manuscript paper, dark = smoky walnut */
-  variant: 'light' | 'dark';
-  children: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
-  /** When true the card uses a stronger 6px offset shadow. */
-  lifted?: boolean;
+interface CreamBlockProps {
+  children: ReactNode;
+  style?: ViewStyle;
+  shadowOffset?: number;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
 export const CreamBlock: React.FC<CreamBlockProps> = ({
-  variant,
   children,
   style,
-  lifted = false,
+  shadowOffset = 4,
 }) => {
-  const backgroundColor =
-    variant === 'light' ? colors.card : colors.surface;
-
-  const shadow = hardShadow(lifted ? 6 : 4);
+  const { colors } = useTheme();
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor },
-        shadow,
-        style,
-      ]}
-    >
-      {children}
+    <View style={[styles.wrapper, { marginBottom: 14 + shadowOffset }]}>
+      {/* Hard Offset Ink Shadow Block */}
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: colors.inkBlack,
+            top: shadowOffset,
+            left: shadowOffset,
+            right: -shadowOffset,
+            bottom: -shadowOffset,
+          },
+        ]}
+      />
+      {/* Foreground Cream Index Card */}
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: colors.cardSurface,
+            borderColor: colors.inkBlack,
+          },
+          style,
+        ]}
+      >
+        {children}
+      </View>
     </View>
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  Styles                                                             */
-/* ------------------------------------------------------------------ */
-
 const styles = StyleSheet.create({
-  container: {
-    borderRadius: 0,
+  wrapper: {
+    position: 'relative',
+  },
+  card: {
     borderWidth: 2,
-    borderColor: colors.border,
-    padding: 16,
+    borderRadius: 0,
+    padding: 14,
   },
 });
-
-export default CreamBlock;

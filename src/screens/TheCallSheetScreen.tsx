@@ -1,494 +1,302 @@
-/**
- * The Call Sheet Screen — Dynamic Schedule, Console Faders & Studio Alarms
- * 
- * Aesthetic:
- * - 1960s Rudy Van Gelder studio booking sheet pinned to mahogany
- * - Studio mixing console faders (Session Time & Chop Battery)
- * - Tactile brass toggle switches for scheduling hard device alarms
- * - Immediate session generation & execution
- */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
-  StyleSheet,
-  Text,
   View,
+  Text,
   ScrollView,
-  SafeAreaView,
-  Platform,
-  Switch,
-  Alert,
-  TouchableOpacity,
+  StyleSheet,
+  Pressable,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { useTheme } from '../theme/ThemeContext';
+import { ActiveStandard, MusicalContext, ScoredExercise } from '../types/models';
 import { CreamBlock } from '../components/CreamBlock';
-import { StampButton } from '../components/StampButton';
-import { StampBadge } from '../components/StampBadge';
 import { StudioFader } from '../components/StudioFader';
-import {
-  AlarmSchedule,
-  PracticeSession,
-  SessionLogEntry,
-  IntensityLevel,
-} from '../types/models';
-import {
-  getAlarmSchedules,
-  updateAlarmSchedule,
-  getAllLogs,
-} from '../db/repository';
-import { generatePracticeSession } from '../services/SchedulerEngine';
-import { alarmManager } from '../services/AlarmManager';
+import { StampButton } from '../components/StampButton';
+import { ActiveStandardBanner } from '../components/ActiveStandardBanner';
+import { scheduleNextShedAlarm } from '../services/AlarmManager';
 
-export interface TheCallSheetScreenProps {
-  onStartSession?: (session: PracticeSession) => void;
-  onNavigateToShed?: () => void;
+interface TheCallSheetScreenProps {
+  activeStandard: ActiveStandard;
+  availableMinutes: number;
+  intensity: number;
+  contextFilter: 'ALL' | MusicalContext;
+  previewQueue: ScoredExercise[];
+  onChangeMinutes: (mins: number) => void;
+  onChangeIntensity: (intensity: number) => void;
+  onChangeContextFilter: (filter: 'ALL' | MusicalContext) => void;
+  onStartSession: () => void;
+  onOpenRotateStandardModal: () => void;
 }
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
+  activeStandard,
+  availableMinutes,
+  intensity,
+  contextFilter,
+  previewQueue,
+  onChangeMinutes,
+  onChangeIntensity,
+  onChangeContextFilter,
   onStartSession,
-  onNavigateToShed,
+  onOpenRotateStandardModal,
 }) => {
-  // Pre-session Audible Faders
-  const [sessionMinutes, setSessionMinutes] = useState<number>(45);
-  const [intensity, setIntensity] = useState<number>(3);
+  const { colors, typography } = useTheme();
+  const [alarmScheduled, setAlarmScheduled] = useState(false);
 
-  // Alarms and history
-  const [alarms, setAlarms] = useState<AlarmSchedule[]>([]);
-  const [logs, setLogs] = useState<SessionLogEntry[]>([]);
-  const [packedSession, setPackedSession] = useState<PracticeSession | null>(null);
+  const handleSetAlarm = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Schedule alarm for tomorrow morning 08:00
+    const target = new Date();
+    target.setDate(target.getDate() + 1);
+    target.setHours(8, 0, 0, 0);
 
-  const loadData = useCallback(async () => {
-    try {
-      const alarmList = await getAlarmSchedules();
-      setAlarms(alarmList);
-      const logList = await getAllLogs(10);
-      setLogs(logList);
-    } catch (err) {
-      console.warn('[TheCallSheet] Error loading alarms and logs:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-    alarmManager.initNotifications();
-  }, [loadData]);
-
-  // Toggle Alarm Schedule in SQLite and OS trigger
-  const handleToggleAlarm = async (alarm: AlarmSchedule) => {
-    const nextEnabled = !alarm.enabled;
-    try {
-      await updateAlarmSchedule(alarm.id, { enabled: nextEnabled });
-      setAlarms((prev) =>
-        prev.map((a) => (a.id === alarm.id ? { ...a, enabled: nextEnabled } : a))
-      );
-
-      if (nextEnabled) {
-        await alarmManager.scheduleAlarm({ ...alarm, enabled: true });
-      } else {
-        await alarmManager.syncAllAlarms();
-      }
-    } catch (err: any) {
-      Alert.alert('Alarm Error', err.message);
-    }
+    await scheduleNextShedAlarm(target, availableMinutes, intensity);
+    setAlarmScheduled(true);
+    setTimeout(() => setAlarmScheduled(false), 4000);
   };
 
-  // Pack Call Sheet Practice Session
-  const handlePackSession = async () => {
-    try {
-      const generated = await generatePracticeSession({
-        availableMinutes: sessionMinutes,
-        intensity: intensity as IntensityLevel,
-        forceWarmup: true,
-      });
-      setPackedSession(generated);
-    } catch (err: any) {
-      Alert.alert('Pack Error', err.message);
-    }
-  };
-
-  // Launch and Navigate
-  const handleLaunchSession = () => {
-    if (packedSession && onStartSession) {
-      onStartSession(packedSession);
-    }
-    if (onNavigateToShed) {
-      onNavigateToShed();
-    }
-  };
-
-  // Trigger Instant Test Alarm
-  const handleTestNotification = async () => {
-    await alarmManager.triggerTestNotification();
-    Alert.alert('Alarm Dispatched', 'Test lock-screen alarm fired. Check your notifications in 2 seconds!');
-  };
+  const totalAllocatedMinutes = previewQueue.reduce(
+    (acc, cur) => acc + cur.allocatedMinutes,
+    0
+  );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.brassRule} />
-          <View style={styles.badgeRow}>
-            <StampBadge label="SHED ENGINE" type="soloing" />
-            <StampBadge label="STUDIO BOOKING SHEET" type="comping" />
-            <StampBadge label="1960 RVG CONSOLE" type="maintenance" />
-          </View>
-          <Text style={styles.headerTitle}>The Call Sheet</Text>
-          <Text style={styles.headerSubtitle}>
-            Pre-session audible mixing faders • OS alarm switches • Session logs
+    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
+      {/* 1-2 Week Active Standard Strip */}
+      <ActiveStandardBanner
+        standard={activeStandard}
+        onPressRotate={onOpenRotateStandardModal}
+      />
+
+      {/* Pre-Session Booking Faders */}
+      <CreamBlock>
+        <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
+          STUDIO CALL SHEET // MIXING CONSOLE
+        </Text>
+        <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+          Dial in your session window and mental stamina to assemble today’s optimal routine.
+        </Text>
+
+        <View style={styles.fadersRow}>
+          <StudioFader
+            label="SESSION TIME"
+            value={availableMinutes}
+            min={15}
+            max={120}
+            step={5}
+            unit="min"
+            accentColor={colors.primary}
+            onChange={onChangeMinutes}
+          />
+
+          <StudioFader
+            label="CHOP BATTERY"
+            value={intensity}
+            min={1}
+            max={5}
+            step={1}
+            unit="/ 5"
+            accentColor={colors.tertiary}
+            onChange={onChangeIntensity}
+          />
+        </View>
+
+        {/* Context Selector */}
+        <View style={styles.contextFilterRow}>
+          <Text style={[styles.filterLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+            TARGET FOCUS:
           </Text>
-          <View style={styles.brassRuleThin} />
-        </View>
-
-        {/* Section 1: Pre-Session Audible Mixing Faders */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>// 01 PRE-SESSION AUDIBLE FADERS</Text>
-          <CreamBlock variant="dark" style={styles.faderCard}>
-            <Text style={styles.faderInstruction}>
-              Drag faders to adjust target rehearsal length and cognitive chop battery:
-            </Text>
-            <View style={styles.faderRow}>
-              <StudioFader
-                label="SESSION TIME"
-                value={sessionMinutes}
-                min={15}
-                max={120}
-                step={5}
-                unit="m"
-                accentColor="#D95D39"
-                height={200}
-                onChange={setSessionMinutes}
-              />
-              <View style={styles.faderDivider} />
-              <StudioFader
-                label="CHOP BATTERY"
-                value={intensity}
-                min={1}
-                max={5}
-                step={1}
-                unit="/5"
-                accentColor="#D49B35"
-                height={200}
-                onChange={setIntensity}
-              />
-            </View>
-
-            <View style={styles.packBtnWrapper}>
-              <StampButton
-                label={`PACK OPTIMAL ${sessionMinutes}M CALL SHEET`}
-                variant="primary"
-                size="md"
-                onPress={handlePackSession}
-              />
-            </View>
-          </CreamBlock>
-        </View>
-
-        {/* Section 2: Packed Session Queue Preview */}
-        {packedSession && (
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: '#D95D39' }]}>
-              // 02 QUEUE GENERATED ({packedSession.totalDurationMinutes}M PACKED)
-            </Text>
-            {packedSession.blocks.map((block, idx) => (
-              <CreamBlock
-                key={`${block.exerciseId}-${idx}`}
-                variant={idx === 0 ? 'light' : 'dark'}
-                lifted={idx === 0}
-                style={styles.queueItem}
+          {(['ALL', 'SOLOING', 'COMPING'] as const).map((filter) => (
+            <Pressable
+              key={filter}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onChangeContextFilter(filter);
+              }}
+              style={[
+                styles.filterPill,
+                {
+                  borderColor: colors.inkBlack,
+                  backgroundColor: contextFilter === filter ? colors.primary : colors.cardSurface,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  {
+                    fontFamily: typography.fontStamp,
+                    color: contextFilter === filter ? colors.cardSurface : colors.inkBlack,
+                  },
+                ]}
               >
-                <View style={styles.cardHeader}>
-                  <StampBadge label={`BLOCK ${idx + 1}`} type={block.exercise.category} />
-                  <StampBadge label={block.exercise.context.toUpperCase()} type={block.exercise.context} />
-                  <Text
-                    style={[
-                      styles.cardMeta,
-                      { color: idx === 0 ? '#1A1412' : '#D49B35' },
-                    ]}
-                  >
-                    {block.durationMinutes} MIN {block.targetKey ? `// TARGET: ${block.targetKey}` : ''}
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    idx === 0 ? styles.cardTitleLight : styles.cardTitleDark,
-                    { color: idx === 0 ? '#1A1412' : '#F4EFE6' },
-                  ]}
-                >
-                  {block.exercise.title}
-                </Text>
-              </CreamBlock>
-            ))}
+                {filter}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </CreamBlock>
 
-            <View style={styles.launchBtnWrapper}>
-              <StampButton
-                label="ENTER THE SHED CONSOLE WITH THIS QUEUE →"
-                variant="primary"
-                size="lg"
-                hapticStyle="heavy"
-                onPress={handleLaunchSession}
-              />
+      {/* Assembled Knapsack Routine Preview */}
+      <CreamBlock>
+        <View style={styles.queueHeader}>
+          <Text style={[styles.queueTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+            SCHEDULED ROUTINE ({previewQueue.length} BLOCKS • {totalAllocatedMinutes}m)
+          </Text>
+          <Text style={[styles.queueSubtitle, { fontFamily: typography.fontMono, color: colors.secondary }]}>
+            Rotated & Decay-Weighted
+          </Text>
+        </View>
+
+        {previewQueue.map((item, idx) => (
+          <View
+            key={`${item.id}-${idx}`}
+            style={[
+              styles.queueItemRow,
+              {
+                borderBottomColor: colors.recessedSurface,
+                backgroundColor: idx % 2 === 0 ? colors.cardSurface : colors.recessedSurface,
+              },
+            ]}
+          >
+            <View style={styles.itemLeft}>
+              <Text style={[styles.itemNumber, { fontFamily: typography.fontMonoBold, color: colors.inkMuted }]}>
+                0{idx + 1}
+              </Text>
+              <View>
+                <Text style={[styles.itemTitle, { fontFamily: typography.fontHeading, color: colors.inkBlack }]}>
+                  {item.title}
+                </Text>
+                <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+                  {item.context} // {item.category} • Urgency: {item.urgencyScore}%
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.durationBadge, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}>
+              <Text style={[styles.durationText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+                {item.allocatedMinutes}m
+              </Text>
             </View>
           </View>
-        )}
+        ))}
 
-        {/* Section 3: Hard OS Device Alarms & Switches */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>// 03 SCHEDULED STUDIO ALARMS</Text>
-            <TouchableOpacity onPress={handleTestNotification}>
-              <Text style={styles.testAlarmLink}>[ TEST NOTIFICATION ]</Text>
-            </TouchableOpacity>
-          </View>
-
-          <CreamBlock variant="dark" style={styles.alarmContainer}>
-            {alarms.map((alarm) => {
-              const timeString = `${String(alarm.hour).padStart(2, '0')}:${String(alarm.minute).padStart(2, '0')}`;
-              const dayName = DAY_NAMES[alarm.dayOfWeek];
-
-              return (
-                <View key={alarm.id} style={styles.alarmRow}>
-                  <View style={styles.alarmInfo}>
-                    <Text style={styles.alarmTime}>{timeString}</Text>
-                    <Text style={styles.alarmDayLabel}>
-                      {dayName.toUpperCase()} • {alarm.label} ({alarm.defaultSessionMinutes}M)
-                    </Text>
-                  </View>
-                  <Switch
-                    value={alarm.enabled}
-                    onValueChange={() => handleToggleAlarm(alarm)}
-                    trackColor={{ false: '#3A2F26', true: '#D49B35' }}
-                    thumbColor={alarm.enabled ? '#F4EFE6' : '#7A6B5D'}
-                  />
-                </View>
-              );
-            })}
-          </CreamBlock>
+        <View style={{ marginTop: 14 }}>
+          <StampButton
+            label="▶ START SHED SESSION"
+            variant="primary"
+            size="lg"
+            onPress={onStartSession}
+          />
         </View>
+      </CreamBlock>
 
-        {/* Section 4: Studio Practice Log Book */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>// 04 STUDIO SESSION LOG BOOK</Text>
-          {logs.length === 0 ? (
-            <CreamBlock variant="dark" style={styles.emptyLogCard}>
-              <Text style={styles.emptyLogText}>
-                No completed session logs yet. Completed drills from The Shed will record here.
-              </Text>
-            </CreamBlock>
-          ) : (
-            logs.map((log) => (
-              <CreamBlock key={log.id} variant="dark" style={styles.logCard}>
-                <View style={styles.logHeader}>
-                  <Text style={styles.logDate}>
-                    {new Date(log.practicedAt).toLocaleDateString()} {new Date(log.practicedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                  <Text style={styles.logDuration}>{log.durationMinutes} MIN LOGGED</Text>
-                </View>
-                <Text style={styles.logNotes}>
-                  {log.notes || 'Routine block internalized in the shed.'}
-                </Text>
-                {log.keysWorked.length > 0 && (
-                  <Text style={styles.logKeys}>
-                    KEYS WORKED: [ {log.keysWorked.join(', ')} ]
-                  </Text>
-                )}
-              </CreamBlock>
-            ))
-          )}
+      {/* Hardware OS Alarms Section */}
+      <CreamBlock>
+        <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
+          HARDWARE OS PRACTICE ALARMS
+        </Text>
+        <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+          Schedules native lock-screen alarms with warm Rhodes swell and self-healing skip recalculations.
+        </Text>
+
+        <View style={{ marginTop: 10 }}>
+          <StampButton
+            label={alarmScheduled ? '✓ ALARM ARMED FOR 08:00 AM' : '⏰ ARM NEXT MORNING ALARM (08:00 AM)'}
+            variant={alarmScheduled ? 'secondary' : 'tertiary'}
+            onPress={handleSetAlarm}
+          />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </CreamBlock>
+    </ScrollView>
   );
 };
 
-export default TheCallSheetScreen;
-
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#16110E',
-    paddingTop: Platform.OS === 'android' ? 24 : 0,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  header: {
-    marginBottom: 20,
-  },
-  brassRule: {
-    height: 4,
-    backgroundColor: '#D49B35',
-    marginBottom: 10,
-  },
-  brassRuleThin: {
-    height: 1,
-    backgroundColor: '#3A2F26',
-    marginTop: 14,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-    flexWrap: 'wrap',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontFamily: 'Fraunces_900Black',
-    lineHeight: 34,
-    color: '#F4EFE6',
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    fontFamily: 'CourierPrime_400Regular',
-    color: '#A69686',
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
+  container: { flex: 1, padding: 14 },
   sectionTitle: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 12,
-    letterSpacing: 2,
-    color: '#D49B35',
-    marginBottom: 10,
-  },
-  testAlarmLink: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    color: '#D95D39',
-  },
-  faderCard: {
-    padding: 16,
-  },
-  faderInstruction: {
-    fontFamily: 'CourierPrime_400Regular',
-    fontSize: 12,
-    color: '#A69686',
-    marginBottom: 14,
-    textAlign: 'center',
-  },
-  faderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  faderDivider: {
-    width: 2,
-    height: 180,
-    backgroundColor: '#3A2F26',
-  },
-  packBtnWrapper: {
-    marginTop: 8,
-  },
-  queueItem: {
-    marginBottom: 10,
-    padding: 12,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-    flexWrap: 'wrap',
-  },
-  cardMeta: {
-    marginLeft: 'auto',
-    fontFamily: 'CourierPrime_700Bold',
-    fontSize: 11,
-  },
-  cardTitleLight: {
-    fontFamily: 'Fraunces_700Bold',
-    fontSize: 18,
-    lineHeight: 22,
-  },
-  cardTitleDark: {
-    fontFamily: 'Fraunces_700Bold',
-    fontSize: 18,
-    lineHeight: 22,
-  },
-  launchBtnWrapper: {
-    marginTop: 8,
-    marginBottom: 10,
-  },
-  alarmContainer: {
-    padding: 12,
-    gap: 14,
-  },
-  alarmRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#3A2F26',
-  },
-  alarmInfo: {
-    flex: 1,
-  },
-  alarmTime: {
-    fontFamily: 'CourierPrime_700Bold',
-    fontSize: 22,
-    color: '#D49B35',
-  },
-  alarmDayLabel: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    color: '#A69686',
-    marginTop: 2,
-  },
-  emptyLogCard: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  emptyLogText: {
-    fontFamily: 'CourierPrime_400Regular',
-    fontSize: 12,
-    color: '#7A6B5D',
-    textAlign: 'center',
-  },
-  logCard: {
-    padding: 12,
-    marginBottom: 10,
-  },
-  logHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    fontSize: 20,
     marginBottom: 4,
   },
-  logDate: {
-    fontFamily: 'CourierPrime_700Bold',
-    fontSize: 11,
-    color: '#D49B35',
-  },
-  logDuration: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: '#D95D39',
-  },
-  logNotes: {
-    fontFamily: 'CourierPrime_400Regular',
+  sectionSubtitle: {
     fontSize: 12,
-    color: '#F4EFE6',
+    lineHeight: 16,
+    marginBottom: 10,
   },
-  logKeys: {
-    fontFamily: 'CourierPrime_700Bold',
+  fadersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 12,
+  },
+  contextFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderTopWidth: 1.5,
+    borderTopColor: '#DDD2BC',
+    paddingTop: 10,
+    marginTop: 6,
+  },
+  filterLabel: {
+    fontSize: 11,
+    letterSpacing: 1,
+  },
+  filterPill: {
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  filterPillText: {
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  queueHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#181512',
+    paddingBottom: 6,
+    marginBottom: 8,
+  },
+  queueTitle: {
+    fontSize: 12,
+    letterSpacing: 1.2,
+  },
+  queueSubtitle: {
+    fontSize: 11,
+  },
+  queueItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderBottomWidth: 1,
+  },
+  itemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    paddingRight: 6,
+  },
+  itemNumber: {
+    fontSize: 14,
+  },
+  itemTitle: {
+    fontSize: 14,
+  },
+  itemMeta: {
     fontSize: 10,
-    color: '#A69686',
-    marginTop: 4,
+    marginTop: 1,
+  },
+  durationBadge: {
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  durationText: {
+    fontSize: 12,
   },
 });

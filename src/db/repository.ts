@@ -1,657 +1,353 @@
-/**
- * Complete Typed Repository for Shed Engine
- * 
- * High-performance offline-first CRUD operations on local SQLite,
- * with optional bidirectional sync to Supabase.
- */
-import { getDb, getSupabaseClient } from './client';
-import {
-  Exercise,
-  ExerciseContext,
-  ExerciseCategory,
-  MusicalKey,
-  KeyStampState,
-  PracticeSession,
-  SessionLogEntry,
-  AlarmSchedule,
-  IntensityLevel,
-} from '../types/models';
-import { createDefaultKeyStamps } from './schema';
+import * as SQLite from 'expo-sqlite';
+import { ActiveStandard, Exercise, PitchKey } from '../types/models';
 
-/* ------------------------------------------------------------------ */
-/*  Database Row Types (Snake Case)                                   */
-/* ------------------------------------------------------------------ */
+const db = SQLite.openDatabaseSync('shed_engine_v2.db');
 
-interface ExerciseRow {
-  id: string;
-  title: string;
-  description: string;
-  context: string;
-  category: string;
-  base_priority: number;
-  default_duration_minutes: number;
-  target_bpm: number | null;
-  key_stamps_json: string;
-  last_practiced_at: string | null;
-  created_at: string;
-  updated_at: string;
-  is_archived: number;
-  synced_at: string | null;
-}
+export function initDatabase(): void {
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS active_standard (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      defaultKey TEXT NOT NULL,
+      startedAt TEXT NOT NULL,
+      rotationCycleDays INTEGER NOT NULL DEFAULT 14
+    );
 
-interface PracticeSessionRow {
-  id: string;
-  available_minutes: number;
-  intensity: number;
-  blocks_json: string;
-  scheduled_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  cancelled: number;
-  total_duration_minutes: number;
-  created_at: string;
-  synced_at: string | null;
-}
+    CREATE TABLE IF NOT EXISTS exercises (
+      id TEXT PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      context TEXT NOT NULL,
+      category TEXT NOT NULL,
+      inRotation INTEGER NOT NULL DEFAULT 1,
+      durationMinutes INTEGER NOT NULL DEFAULT 15,
+      intensity INTEGER NOT NULL DEFAULT 3,
+      basePriority INTEGER NOT NULL DEFAULT 5,
+      currentBpm INTEGER NOT NULL DEFAULT 120,
+      isKeyBased INTEGER NOT NULL DEFAULT 0,
+      masteredKeys TEXT NOT NULL DEFAULT '[]',
+      usesActiveStandard INTEGER NOT NULL DEFAULT 0,
+      lastPracticedAt TEXT,
+      skippedCount INTEGER NOT NULL DEFAULT 0
+    );
+  `);
 
-interface SessionLogRow {
-  id: string;
-  session_id: string;
-  exercise_id: string;
-  duration_minutes: number;
-  keys_worked_json: string;
-  bpm_achieved: number | null;
-  notes: string;
-  practiced_at: string;
-  created_at: string;
-  synced_at: string | null;
-}
-
-interface AlarmScheduleRow {
-  id: string;
-  day_of_week: number;
-  hour: number;
-  minute: number;
-  enabled: number;
-  label: string;
-  default_session_minutes: number;
-  default_intensity: number;
-  created_at: string;
-  synced_at: string | null;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Mappers                                                            */
-/* ------------------------------------------------------------------ */
-
-function mapExerciseRow(row: ExerciseRow): Exercise {
-  let keyStamps: KeyStampState[] = [];
-  try {
-    keyStamps = JSON.parse(row.key_stamps_json);
-  } catch {
-    keyStamps = createDefaultKeyStamps();
+  // Seed default Active Standard if empty
+  const stdCount = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM active_standard');
+  if (!stdCount || stdCount.count === 0) {
+    db.runSync(
+      `INSERT INTO active_standard (id, title, defaultKey, startedAt, rotationCycleDays)
+       VALUES ('std_1', 'Stella By Starlight', 'Bb', ?, 14)`,
+      [new Date(Date.now() - 5 * 86400000).toISOString()] // Day 6 of 14
+    );
   }
 
+  // Seed authentic jazz exercises if empty
+  const exCount = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM exercises');
+  if (!exCount || exCount.count === 0) {
+    const defaultExercises = [
+      {
+        id: 'ex_1',
+        title: 'Drop 2 Voicings (Stella & Autumn Leaves)',
+        description: 'Smooth voice leading for minor 7th, dominant 7th, and major 7th chords across top 4 strings.',
+        context: 'COMPING',
+        category: 'MAINTENANCE',
+        inRotation: 1,
+        durationMinutes: 15,
+        intensity: 2,
+        basePriority: 8,
+        currentBpm: 110,
+        isKeyBased: 1,
+        masteredKeys: JSON.stringify(['C', 'F', 'Bb', 'Eb']),
+        usesActiveStandard: 1,
+      },
+      {
+        id: 'ex_2',
+        title: 'Bill Evans Rootless Shells',
+        description: 'Type A (3-5-7-9) and Type B (7-9-3-5) inversions over the II-V-I cycle with bass pedal points.',
+        context: 'COMPING',
+        category: 'MAINTENANCE',
+        inRotation: 1,
+        durationMinutes: 15,
+        intensity: 2,
+        basePriority: 7,
+        currentBpm: 120,
+        isKeyBased: 1,
+        masteredKeys: JSON.stringify(['F', 'Bb', 'Eb', 'Ab']),
+        usesActiveStandard: 1,
+      },
+      {
+        id: 'ex_3',
+        title: 'Donna Lee Head & Bird Solo',
+        description: 'Charlie Parker bebop phrasing, chromatic enclosures, and rapid target-note articulation.',
+        context: 'SOLOING',
+        category: 'TRANSCRIBING',
+        inRotation: 1,
+        durationMinutes: 20,
+        intensity: 5,
+        basePriority: 9,
+        currentBpm: 180,
+        isKeyBased: 0,
+        masteredKeys: JSON.stringify([]),
+        usesActiveStandard: 0,
+      },
+      {
+        id: 'ex_4',
+        title: 'Coltrane Matrix Permutations',
+        description: 'Four-note digital patterns (1-2-3-5) navigating major thirds cycle (Giant Steps substitutions).',
+        context: 'SOLOING',
+        category: 'NEW_CONCEPT',
+        inRotation: 1,
+        durationMinutes: 15,
+        intensity: 4,
+        basePriority: 8,
+        currentBpm: 140,
+        isKeyBased: 1,
+        masteredKeys: JSON.stringify(['C', 'G']),
+        usesActiveStandard: 0,
+      },
+      {
+        id: 'ex_5',
+        title: 'Altered Dominant Licks & Tritone Subs',
+        description: 'Super Locrian / 7th mode of melodic minor over resolving secondary dominants.',
+        context: 'SOLOING',
+        category: 'NEW_CONCEPT',
+        inRotation: 1,
+        durationMinutes: 15,
+        intensity: 3,
+        basePriority: 7,
+        currentBpm: 130,
+        isKeyBased: 1,
+        masteredKeys: JSON.stringify(['C', 'F', 'Bb']),
+        usesActiveStandard: 0,
+      },
+      {
+        id: 'ex_6',
+        title: 'Freddie Green 4-to-the-Bar Swing',
+        description: 'Rhythm guitar acoustic swing chunking using 2-note shell chords on strings 4 & 6.',
+        context: 'COMPING',
+        category: 'MAINTENANCE',
+        inRotation: 0,
+        durationMinutes: 10,
+        intensity: 1,
+        basePriority: 6,
+        currentBpm: 130,
+        isKeyBased: 0,
+        masteredKeys: JSON.stringify([]),
+        usesActiveStandard: 1,
+      },
+    ];
+
+    for (const ex of defaultExercises) {
+      db.runSync(
+        `INSERT INTO exercises (
+          id, title, description, context, category, inRotation,
+          durationMinutes, intensity, basePriority, currentBpm,
+          isKeyBased, masteredKeys, usesActiveStandard, skippedCount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          ex.id,
+          ex.title,
+          ex.description,
+          ex.context,
+          ex.category,
+          ex.inRotation,
+          ex.durationMinutes,
+          ex.intensity,
+          ex.basePriority,
+          ex.currentBpm,
+          ex.isKeyBased,
+          ex.masteredKeys,
+          ex.usesActiveStandard,
+        ]
+      );
+    }
+  }
+}
+
+function mapRowToExercise(row: any): Exercise {
   return {
     id: row.id,
     title: row.title,
     description: row.description,
-    context: row.context as ExerciseContext,
-    category: row.category as ExerciseCategory,
-    basePriority: row.base_priority,
-    defaultDurationMinutes: row.default_duration_minutes,
-    targetBpm: row.target_bpm,
-    keyStamps,
-    lastPracticedAt: row.last_practiced_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    isArchived: row.is_archived === 1,
+    context: row.context,
+    category: row.category,
+    inRotation: Boolean(row.inRotation),
+    durationMinutes: row.durationMinutes,
+    intensity: row.intensity,
+    basePriority: row.basePriority,
+    currentBpm: row.currentBpm,
+    isKeyBased: Boolean(row.isKeyBased),
+    masteredKeys: JSON.parse(row.masteredKeys || '[]'),
+    usesActiveStandard: Boolean(row.usesActiveStandard),
+    lastPracticedAt: row.lastPracticedAt,
+    skippedCount: row.skippedCount,
   };
 }
 
-function mapSessionRow(row: PracticeSessionRow): PracticeSession {
+/**
+ * Fetch current 1-2 week Jazz Standard for Maintenance exercises
+ */
+export function getActiveStandard(): ActiveStandard {
+  initDatabase();
+  const row = db.getFirstSync<any>('SELECT * FROM active_standard LIMIT 1');
+  if (!row) {
+    return {
+      id: 'std_1',
+      title: 'Stella By Starlight',
+      defaultKey: 'Bb',
+      startedAt: new Date().toISOString(),
+      rotationCycleDays: 14,
+    };
+  }
   return {
     id: row.id,
-    config: {
-      availableMinutes: row.available_minutes,
-      intensity: row.intensity as IntensityLevel,
-    },
-    blocks: JSON.parse(row.blocks_json || '[]'),
-    scheduledAt: row.scheduled_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    cancelled: row.cancelled === 1,
-    totalDurationMinutes: row.total_duration_minutes,
+    title: row.title,
+    defaultKey: row.defaultKey as PitchKey,
+    startedAt: row.startedAt,
+    rotationCycleDays: row.rotationCycleDays,
   };
 }
 
-function mapSessionLogRow(row: SessionLogRow): SessionLogEntry {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    exerciseId: row.exercise_id,
-    durationMinutes: row.duration_minutes,
-    keysWorked: JSON.parse(row.keys_worked_json || '[]') as MusicalKey[],
-    bpmAchieved: row.bpm_achieved,
-    notes: row.notes,
-    practicedAt: row.practiced_at,
-  };
+/**
+ * Rotate to a new Jazz Standard for the next 1-2 weeks
+ */
+export function rotateActiveStandard(
+  newTitle: string,
+  newKey: PitchKey,
+  cycleDays: 7 | 10 | 14 = 14
+): ActiveStandard {
+  initDatabase();
+  const nowIso = new Date().toISOString();
+  db.runSync(
+    `UPDATE active_standard
+     SET title = ?, defaultKey = ?, startedAt = ?, rotationCycleDays = ?
+     WHERE id = 'std_1'`,
+    [newTitle, newKey, nowIso, cycleDays]
+  );
+  return getActiveStandard();
 }
 
-function mapAlarmScheduleRow(row: AlarmScheduleRow): AlarmSchedule {
-  return {
-    id: row.id,
-    dayOfWeek: row.day_of_week,
-    hour: row.hour,
-    minute: row.minute,
-    enabled: row.enabled === 1,
-    label: row.label,
-    defaultSessionMinutes: row.default_session_minutes,
-    defaultIntensity: row.default_intensity as IntensityLevel,
-  };
+/**
+ * Returns ONLY exercises currently marked In-Rotation for the daily scheduler
+ */
+export function getRotationExercises(): Exercise[] {
+  initDatabase();
+  const rows = db.getAllSync<any>('SELECT * FROM exercises WHERE inRotation = 1');
+  return rows.map(mapRowToExercise);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Exercise Repository Methods                                        */
-/* ------------------------------------------------------------------ */
-
-export async function getExercises(options?: {
-  context?: ExerciseContext;
-  category?: ExerciseCategory;
-  includeArchived?: boolean;
-}): Promise<Exercise[]> {
-  const db = await getDb();
-  let query = 'SELECT * FROM exercises WHERE 1=1';
-  const params: (string | number)[] = [];
-
-  if (!options?.includeArchived) {
-    query += ' AND is_archived = 0';
-  }
-
-  if (options?.context) {
-    query += ' AND context = ?';
-    params.push(options.context);
-  }
-
-  if (options?.category) {
-    query += ' AND category = ?';
-    params.push(options.category);
-  }
-
-  query += ' ORDER BY base_priority DESC, created_at DESC';
-
-  const rows = await db.getAllAsync<ExerciseRow>(query, params);
-  return rows.map(mapExerciseRow);
+/**
+ * Returns ALL exercises (Active Rotation + Archived Vault) for The Crate screen
+ */
+export function getAllVaultExercises(): Exercise[] {
+  initDatabase();
+  const rows = db.getAllSync<any>('SELECT * FROM exercises ORDER BY inRotation DESC, basePriority DESC');
+  return rows.map(mapRowToExercise);
 }
 
-export async function getExerciseById(id: string): Promise<Exercise | null> {
-  const db = await getDb();
-  const row = await db.getFirstAsync<ExerciseRow>(
-    'SELECT * FROM exercises WHERE id = ?',
+/**
+ * Toggle whether an exercise is in active rotation or dormant in the Vault
+ */
+export function toggleExerciseRotation(id: string, inRotation: boolean): void {
+  initDatabase();
+  db.runSync('UPDATE exercises SET inRotation = ? WHERE id = ?', [inRotation ? 1 : 0, id]);
+}
+
+/**
+ * GRADUATE TO MAINTENANCE:
+ * Converts a NEW_CONCEPT or TRANSCRIBING exercise into an ongoing MAINTENANCE exercise
+ * automatically bound to the 1-2 week Active Standard.
+ */
+export function graduateExerciseToMaintenance(id: string): void {
+  initDatabase();
+  db.runSync(
+    `UPDATE exercises
+     SET category = 'MAINTENANCE',
+         usesActiveStandard = 1,
+         intensity = MAX(1, intensity - 1),
+         basePriority = 6,
+         skippedCount = 0
+     WHERE id = ?`,
     [id]
   );
-  return row ? mapExerciseRow(row) : null;
 }
 
-export async function createExercise(
-  exercise: Omit<Exercise, 'id' | 'createdAt' | 'updatedAt' | 'isArchived'> & {
-    id?: string;
-  }
-): Promise<Exercise> {
-  const db = await getDb();
-  const id = exercise.id || `ex-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const now = new Date().toISOString();
-  const keyStamps = exercise.keyStamps?.length ? exercise.keyStamps : createDefaultKeyStamps();
-
-  await db.runAsync(
-    `INSERT INTO exercises (
-      id, title, description, context, category, base_priority,
-      default_duration_minutes, target_bpm, key_stamps_json,
-      last_practiced_at, created_at, updated_at, is_archived, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    [
-      id,
-      exercise.title,
-      exercise.description || '',
-      exercise.context,
-      exercise.category,
-      exercise.basePriority,
-      exercise.defaultDurationMinutes,
-      exercise.targetBpm ?? null,
-      JSON.stringify(keyStamps),
-      exercise.lastPracticedAt ?? null,
-      now,
-      now,
-      0,
-    ]
-  );
-
-  return {
-    id,
-    title: exercise.title,
-    description: exercise.description || '',
-    context: exercise.context,
-    category: exercise.category,
-    basePriority: exercise.basePriority,
-    defaultDurationMinutes: exercise.defaultDurationMinutes,
-    targetBpm: exercise.targetBpm ?? null,
-    keyStamps,
-    lastPracticedAt: exercise.lastPracticedAt ?? null,
-    createdAt: now,
-    updatedAt: now,
-    isArchived: false,
-  };
-}
-
-export async function updateExercise(
+/**
+ * Update exercise progress after completing a timer block or stamping keys
+ */
+export function updateExerciseProgress(
   id: string,
-  updates: Partial<Omit<Exercise, 'id' | 'createdAt'>>
-): Promise<Exercise> {
-  const db = await getDb();
-  const current = await getExerciseById(id);
-  if (!current) {
-    throw new Error(`Exercise with id ${id} not found`);
-  }
-
-  const now = new Date().toISOString();
-  const updated: Exercise = {
-    ...current,
-    ...updates,
-    updatedAt: now,
-  };
-
-  await db.runAsync(
-    `UPDATE exercises SET
-      title = ?,
-      description = ?,
-      context = ?,
-      category = ?,
-      base_priority = ?,
-      default_duration_minutes = ?,
-      target_bpm = ?,
-      key_stamps_json = ?,
-      last_practiced_at = ?,
-      updated_at = ?,
-      is_archived = ?,
-      synced_at = NULL
-    WHERE id = ?`,
-    [
-      updated.title,
-      updated.description,
-      updated.context,
-      updated.category,
-      updated.basePriority,
-      updated.defaultDurationMinutes,
-      updated.targetBpm ?? null,
-      JSON.stringify(updated.keyStamps),
-      updated.lastPracticedAt ?? null,
-      now,
-      updated.isArchived ? 1 : 0,
-      id,
-    ]
-  );
-
-  return updated;
-}
-
-export async function updateExerciseKeyStamps(
-  id: string,
-  keyStamps: KeyStampState[]
-): Promise<Exercise> {
-  return updateExercise(id, { keyStamps });
-}
-
-export async function markExercisePracticed(
-  id: string,
-  keysWorked?: MusicalKey[],
-  bpmAchieved?: number | null
-): Promise<Exercise> {
-  const exercise = await getExerciseById(id);
-  if (!exercise) {
-    throw new Error(`Exercise ${id} not found`);
-  }
-
-  const now = new Date().toISOString();
-  let updatedStamps = [...exercise.keyStamps];
-
-  if (keysWorked && keysWorked.length > 0) {
-    updatedStamps = updatedStamps.map((stamp) => {
-      if (keysWorked.includes(stamp.key)) {
-        return {
-          ...stamp,
-          stamped: true,
-          bpm: bpmAchieved ?? stamp.bpm,
-          stampedAt: now,
-        };
-      }
-      return stamp;
-    });
-  }
-
-  return updateExercise(id, {
-    lastPracticedAt: now,
-    keyStamps: updatedStamps,
-  });
-}
-
-export async function deleteExercise(id: string, permanent: boolean = false): Promise<void> {
-  const db = await getDb();
-  if (permanent) {
-    await db.runAsync('DELETE FROM exercises WHERE id = ?', [id]);
+  bpm: number,
+  keys: PitchKey[],
+  markPracticedNow: boolean
+): void {
+  initDatabase();
+  if (markPracticedNow) {
+    db.runSync(
+      `UPDATE exercises
+       SET currentBpm = ?, masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0
+       WHERE id = ?`,
+      [bpm, JSON.stringify(keys), new Date().toISOString(), id]
+    );
   } else {
-    await db.runAsync(
-      'UPDATE exercises SET is_archived = 1, updated_at = ?, synced_at = NULL WHERE id = ?',
-      [new Date().toISOString(), id]
+    db.runSync(
+      `UPDATE exercises SET currentBpm = ?, masteredKeys = ? WHERE id = ?`,
+      [bpm, JSON.stringify(keys), id]
     );
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Practice Session Methods                                           */
-/* ------------------------------------------------------------------ */
-
-export async function createPracticeSession(
-  session: Omit<PracticeSession, 'id' | 'scheduledAt'> & {
-    id?: string;
-    scheduledAt?: string;
-  }
-): Promise<PracticeSession> {
-  const db = await getDb();
-  const id = session.id || `session-${Date.now()}`;
-  const now = new Date().toISOString();
-  const scheduledAt = session.scheduledAt || now;
-
-  await db.runAsync(
-    `INSERT INTO practice_sessions (
-      id, available_minutes, intensity, blocks_json, scheduled_at,
-      started_at, completed_at, cancelled, total_duration_minutes,
-      created_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    [
-      id,
-      session.config.availableMinutes,
-      session.config.intensity,
-      JSON.stringify(session.blocks),
-      scheduledAt,
-      session.startedAt ?? null,
-      session.completedAt ?? null,
-      session.cancelled ? 1 : 0,
-      session.totalDurationMinutes || 0,
-      now,
-    ]
-  );
-
-  return {
-    id,
-    config: session.config,
-    blocks: session.blocks,
-    scheduledAt,
-    startedAt: session.startedAt ?? null,
-    completedAt: session.completedAt ?? null,
-    cancelled: session.cancelled,
-    totalDurationMinutes: session.totalDurationMinutes,
-  };
-}
-
-export async function updatePracticeSession(
-  id: string,
-  updates: Partial<PracticeSession>
-): Promise<void> {
-  const db = await getDb();
-  const current = await db.getFirstAsync<PracticeSessionRow>(
-    'SELECT * FROM practice_sessions WHERE id = ?',
-    [id]
-  );
-  if (!current) return;
-
-  const updatedCancelled = updates.cancelled !== undefined ? (updates.cancelled ? 1 : 0) : current.cancelled;
-  const updatedStarted = updates.startedAt !== undefined ? updates.startedAt : current.started_at;
-  const updatedCompleted = updates.completedAt !== undefined ? updates.completedAt : current.completed_at;
-  const updatedTotal = updates.totalDurationMinutes !== undefined ? updates.totalDurationMinutes : current.total_duration_minutes;
-  const updatedBlocks = updates.blocks ? JSON.stringify(updates.blocks) : current.blocks_json;
-
-  await db.runAsync(
-    `UPDATE practice_sessions SET
-      started_at = ?,
-      completed_at = ?,
-      cancelled = ?,
-      total_duration_minutes = ?,
-      blocks_json = ?,
-      synced_at = NULL
-    WHERE id = ?`,
-    [
-      updatedStarted,
-      updatedCompleted,
-      updatedCancelled,
-      updatedTotal,
-      updatedBlocks,
-      id,
-    ]
-  );
-}
-
-export async function getRecentSessions(limit: number = 10): Promise<PracticeSession[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<PracticeSessionRow>(
-    'SELECT * FROM practice_sessions ORDER BY scheduled_at DESC LIMIT ?',
-    [limit]
-  );
-  return rows.map(mapSessionRow);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Session Logs Methods                                               */
-/* ------------------------------------------------------------------ */
-
-export async function logSessionCompletion(
-  log: Omit<SessionLogEntry, 'id' | 'practicedAt'> & {
-    id?: string;
-    practicedAt?: string;
-  }
-): Promise<SessionLogEntry> {
-  const db = await getDb();
-  const id = log.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-  const now = new Date().toISOString();
-  const practicedAt = log.practicedAt || now;
-
-  await db.runAsync(
-    `INSERT INTO session_logs (
-      id, session_id, exercise_id, duration_minutes, keys_worked_json,
-      bpm_achieved, notes, practiced_at, created_at, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    [
-      id,
-      log.sessionId,
-      log.exerciseId,
-      log.durationMinutes,
-      JSON.stringify(log.keysWorked || []),
-      log.bpmAchieved ?? null,
-      log.notes || '',
-      practicedAt,
-      now,
-    ]
-  );
-
-  // Mark exercise as practiced
-  await markExercisePracticed(log.exerciseId, log.keysWorked, log.bpmAchieved);
-
-  return {
-    id,
-    sessionId: log.sessionId,
-    exerciseId: log.exerciseId,
-    durationMinutes: log.durationMinutes,
-    keysWorked: log.keysWorked,
-    bpmAchieved: log.bpmAchieved,
-    notes: log.notes,
-    practicedAt,
-  };
-}
-
-export async function getLogsForExercise(exerciseId: string): Promise<SessionLogEntry[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<SessionLogRow>(
-    'SELECT * FROM session_logs WHERE exercise_id = ? ORDER BY practiced_at DESC',
-    [exerciseId]
-  );
-  return rows.map(mapSessionLogRow);
-}
-
-export async function getAllLogs(limit: number = 50): Promise<SessionLogEntry[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<SessionLogRow>(
-    'SELECT * FROM session_logs ORDER BY practiced_at DESC LIMIT ?',
-    [limit]
-  );
-  return rows.map(mapSessionLogRow);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Alarm Schedules Methods                                            */
-/* ------------------------------------------------------------------ */
-
-export async function getAlarmSchedules(): Promise<AlarmSchedule[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<AlarmScheduleRow>(
-    'SELECT * FROM alarm_schedules ORDER BY day_of_week ASC, hour ASC, minute ASC'
-  );
-  return rows.map(mapAlarmScheduleRow);
-}
-
-export async function updateAlarmSchedule(
-  id: string,
-  updates: Partial<Omit<AlarmSchedule, 'id'>>
-): Promise<void> {
-  const db = await getDb();
-  const current = await db.getFirstAsync<AlarmScheduleRow>(
-    'SELECT * FROM alarm_schedules WHERE id = ?',
-    [id]
-  );
-  if (!current) return;
-
-  const enabled = updates.enabled !== undefined ? (updates.enabled ? 1 : 0) : current.enabled;
-  const hour = updates.hour !== undefined ? updates.hour : current.hour;
-  const minute = updates.minute !== undefined ? updates.minute : current.minute;
-  const label = updates.label !== undefined ? updates.label : current.label;
-  const defaultMinutes = updates.defaultSessionMinutes !== undefined ? updates.defaultSessionMinutes : current.default_session_minutes;
-  const defaultIntensity = updates.defaultIntensity !== undefined ? updates.defaultIntensity : current.default_intensity;
-
-  await db.runAsync(
-    `UPDATE alarm_schedules SET
-      enabled = ?,
-      hour = ?,
-      minute = ?,
-      label = ?,
-      default_session_minutes = ?,
-      default_intensity = ?,
-      synced_at = NULL
-    WHERE id = ?`,
-    [
-      enabled,
-      hour,
-      minute,
-      label,
-      defaultMinutes,
-      defaultIntensity,
-      id,
-    ]
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Supabase Cloud Backup Sync (Optional / Resilient)                  */
-/* ------------------------------------------------------------------ */
-
-export interface SyncResult {
-  syncedExercises: number;
-  syncedLogs: number;
-  skipped: boolean;
-  error?: string;
-}
-
-export async function syncPendingRecordsWithSupabase(): Promise<SyncResult> {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return {
-      syncedExercises: 0,
-      syncedLogs: 0,
-      skipped: true,
-    };
-  }
-
-  const db = await getDb();
+/**
+ * Self-Healing: Increment skippedCount for all exercises in a canceled session
+ */
+export function incrementSkippedForCanceledSession(exerciseIds: string[]): void {
+  initDatabase();
+  const stmt = db.prepareSync('UPDATE exercises SET skippedCount = skippedCount + 1 WHERE id = ?');
   try {
-    // 1. Find exercises needing sync
-    const pendingExercises = await db.getAllAsync<ExerciseRow>(
-      'SELECT * FROM exercises WHERE synced_at IS NULL OR synced_at < updated_at'
-    );
-
-    let syncedExercisesCount = 0;
-    if (pendingExercises.length > 0) {
-      const records = pendingExercises.map((row) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        context: row.context,
-        category: row.category,
-        base_priority: row.base_priority,
-        default_duration_minutes: row.default_duration_minutes,
-        target_bpm: row.target_bpm,
-        key_stamps_json: row.key_stamps_json,
-        last_practiced_at: row.last_practiced_at,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        is_archived: row.is_archived === 1,
-      }));
-
-      const { error } = await supabase.from('exercises').upsert(records);
-      if (!error) {
-        const now = new Date().toISOString();
-        for (const ex of pendingExercises) {
-          await db.runAsync('UPDATE exercises SET synced_at = ? WHERE id = ?', [now, ex.id]);
-        }
-        syncedExercisesCount = pendingExercises.length;
-      }
+    for (const id of exerciseIds) {
+      stmt.executeSync([id]);
     }
-
-    // 2. Find session logs needing sync
-    const pendingLogs = await db.getAllAsync<SessionLogRow>(
-      'SELECT * FROM session_logs WHERE synced_at IS NULL'
-    );
-
-    let syncedLogsCount = 0;
-    if (pendingLogs.length > 0) {
-      const records = pendingLogs.map((row) => ({
-        id: row.id,
-        session_id: row.session_id,
-        exercise_id: row.exercise_id,
-        duration_minutes: row.duration_minutes,
-        keys_worked_json: row.keys_worked_json,
-        bpm_achieved: row.bpm_achieved,
-        notes: row.notes,
-        practiced_at: row.practiced_at,
-        created_at: row.created_at,
-      }));
-
-      const { error } = await supabase.from('session_logs').upsert(records);
-      if (!error) {
-        const now = new Date().toISOString();
-        for (const log of pendingLogs) {
-          await db.runAsync('UPDATE session_logs SET synced_at = ? WHERE id = ?', [now, log.id]);
-        }
-        syncedLogsCount = pendingLogs.length;
-      }
-    }
-
-    return {
-      syncedExercises: syncedExercisesCount,
-      syncedLogs: syncedLogsCount,
-      skipped: false,
-    };
-  } catch (err: any) {
-    return {
-      syncedExercises: 0,
-      syncedLogs: 0,
-      skipped: false,
-      error: err?.message || 'Sync failed',
-    };
+  } finally {
+    stmt.finalizeSync();
   }
+}
+
+/**
+ * Add a new exercise to SQLite
+ */
+export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
+  initDatabase();
+  const id = `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  db.runSync(
+    `INSERT INTO exercises (
+      id, title, description, context, category, inRotation,
+      durationMinutes, intensity, basePriority, currentBpm,
+      isKeyBased, masteredKeys, usesActiveStandard, skippedCount
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      id,
+      ex.title,
+      ex.description,
+      ex.context,
+      ex.category,
+      ex.inRotation ? 1 : 0,
+      ex.durationMinutes,
+      ex.intensity,
+      ex.basePriority,
+      ex.currentBpm,
+      ex.isKeyBased ? 1 : 0,
+      JSON.stringify(ex.masteredKeys || []),
+      ex.usesActiveStandard ? 1 : 0,
+    ]
+  );
+  return { ...ex, id };
+}
+
+/**
+ * Delete exercise permanently
+ */
+export function deleteExercise(id: string): void {
+  initDatabase();
+  db.runSync('DELETE FROM exercises WHERE id = ?', [id]);
 }

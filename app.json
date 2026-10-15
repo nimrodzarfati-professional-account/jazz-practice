@@ -23,6 +23,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "experiments": {
+      "baseUrl": "/jazz-practice"
+    },
     "plugins": [
       "expo-router",
       "expo-sqlite",
