@@ -15,13 +15,13 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
 }) => {
   const { colors, typography } = useTheme();
 
-  const startedDate = new Date(standard.startedAt);
+  const startedDate = standard?.startedAt ? new Date(standard.startedAt) : new Date();
   const now = new Date();
   const daysElapsed = Math.max(
     1,
     Math.floor((now.getTime() - startedDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
   );
-  const isDueToRotate = daysElapsed >= standard.rotationCycleDays;
+  const isDueToRotate = daysElapsed >= (standard?.rotationCycleDays || 14);
 
   const handleRotatePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -46,7 +46,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
               { fontFamily: typography.fontStamp, color: colors.primary },
             ]}
           >
-            MAINT. STANDARD ({standard.defaultKey})
+            MAINT. STANDARD ({standard?.defaultKey || 'N/A'})
           </Text>
           <Text
             style={[
@@ -57,7 +57,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
               },
             ]}
           >
-            • DAY {daysElapsed}/{standard.rotationCycleDays}
+            • DAY {daysElapsed}/{standard?.rotationCycleDays || 14}
             {isDueToRotate ? ' (DUE TO ROTATE)' : ''}
           </Text>
         </View>
@@ -67,7 +67,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
             { fontFamily: typography.fontDisplay, color: colors.inkBlack },
           ]}
         >
-          “{standard.title}”
+          “{standard?.title || 'No standard chosen'}”
         </Text>
       </View>
 

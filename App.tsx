@@ -103,7 +103,9 @@ function AppContent() {
       allocatedMinutes: exercise.durationMinutes,
       assignedStandardTitle:
         exercise.usesActiveStandard || exercise.category === 'MAINTENANCE'
-          ? `${activeStandard.title} (${activeStandard.defaultKey})`
+          ? (activeStandard?.title && activeStandard?.defaultKey
+              ? `${activeStandard.title} (${activeStandard.defaultKey})`
+              : 'No standard chosen')
           : undefined,
     };
     setQueue([singleQueueItem, ...queue.filter((q) => q.id !== exercise.id)]);

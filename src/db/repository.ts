@@ -178,7 +178,7 @@ function getDb(): SyncDb {
   }
 
   // Native SQLite on iOS / Android
-  dbInstance = SQLite.openDatabaseSync('shed_engine_v2.db');
+  dbInstance = SQLite.openDatabaseSync('shed_engine_v2.db') as unknown as SyncDb;
   return dbInstance;
 }
 

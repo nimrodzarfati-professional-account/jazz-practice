@@ -51,7 +51,9 @@ export function generateSessionQueue(
       allocatedMinutes: ex.durationMinutes, // Timer comes directly from the exercise!
       assignedStandardTitle:
         ex.usesActiveStandard || ex.category === 'MAINTENANCE'
-          ? `${activeStandard.title} (${activeStandard.defaultKey})`
+          ? (activeStandard?.title && activeStandard?.defaultKey
+              ? `${activeStandard.title} (${activeStandard.defaultKey})`
+              : 'No standard chosen')
           : undefined,
     }))
     .sort((a, b) => b.urgencyScore - a.urgencyScore);

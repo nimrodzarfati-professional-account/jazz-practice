@@ -76,7 +76,7 @@ export async function scheduleNextShedAlarm(
     await notifee.createTriggerNotification(
       {
         id: 'next_scheduled_shed',
-        title: `🎷 Shed Time (${durationMinutes}m) — Std: ${activeStandard.title}`,
+        title: `🎷 Shed Time (${durationMinutes}m) — Std: ${activeStandard?.title || 'No standard chosen'}`,
         body: topTitles || 'Open Shed Engine to start your rotation.',
         data: {
           queuedIds: JSON.stringify(previewQueue.map((e) => e.id)),
