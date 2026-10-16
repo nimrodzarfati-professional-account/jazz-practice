@@ -48,7 +48,7 @@ export const StampButton: React.FC<StampButtonProps> = ({
   const getTextColor = () => {
     if (disabled) return colors.inkMuted;
     if (variant === 'tertiary') return colors.inkBlack;
-    return colors.cardSurface;
+    return colors.textPrimary;
   };
 
   const handlePressIn = () => {
@@ -76,7 +76,7 @@ export const StampButton: React.FC<StampButtonProps> = ({
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: colors.inkBlack,
+            backgroundColor: colors.shadowHard,
             top: shadowOffset,
             left: shadowOffset,
             right: -shadowOffset,

@@ -3,7 +3,8 @@
  */
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { colors, fontFamilies } from '../theme/tokens';
+import { useTheme } from '../theme/ThemeContext';
+import { fontFamilies } from '../theme/tokens';
 import type { ExerciseCategory, MusicalContext } from '../types/models';
 
 export type StampBadgeType = ExerciseCategory | MusicalContext;
@@ -12,14 +13,6 @@ export interface StampBadgeProps {
   label: string;
   type: StampBadgeType;
 }
-
-const BADGE_COLORS: Record<StampBadgeType, string> = {
-  SOLOING: colors.primary,      // Sienna #D95D39
-  COMPING: colors.tertiary,     // Brass  #D49B35
-  MAINTENANCE: colors.secondary,// Oxblood #9E2A2B
-  TRANSCRIBING: colors.primary,
-  NEW_CONCEPT: colors.primary,
-};
 
 function labelRotation(label: string): number {
   let hash = 0;
@@ -31,7 +24,23 @@ function labelRotation(label: string): number {
 }
 
 export const StampBadge: React.FC<StampBadgeProps> = ({ label, type }) => {
-  const badgeColor = BADGE_COLORS[type] || colors.primary;
+  const { colors } = useTheme();
+
+  const badgeColor = useMemo(() => {
+    switch (type) {
+      case 'SOLOING':
+      case 'TRANSCRIBING':
+      case 'NEW_CONCEPT':
+        return colors.primary;
+      case 'COMPING':
+        return colors.tertiary;
+      case 'MAINTENANCE':
+        return colors.secondary;
+      default:
+        return colors.primary;
+    }
+  }, [type, colors]);
+
   const rotation = useMemo(() => labelRotation(label), [label]);
 
   const containerStyle: ViewStyle = {

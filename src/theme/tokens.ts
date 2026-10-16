@@ -50,7 +50,7 @@ export const colors = {
 
 export const warmColors = {
   // Autumn Dark Brown Palette
-  inkBlack: '#0F0C0A',          // Deep espresso
+  inkBlack: '#E8DFD3',          // Light cream ink for dark cards
   cardSurface: '#2E221A',       // Rich warm brown
   recessedSurface: '#1F1711',   // Darker recessed brown
   canvasBg: '#120D0A',          // Very dark roasted bean
@@ -70,9 +70,9 @@ export const warmColors = {
   accentAlert: '#8C382A',
   textPrimary: '#E8DFD3',
   textSecondary: '#BAA998',
-  textDark: '#0F0C0A',
+  textDark: '#E8DFD3',          // Readable light text inside inputs on dark cards
   textMuted: '#8A7A6E',
-  border: '#0F0C0A',
+  border: '#362A21',
   borderLight: '#362A21',
   shadowHard: '#080504',
   soloing: '#C86B3E',
