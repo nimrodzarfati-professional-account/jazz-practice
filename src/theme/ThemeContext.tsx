@@ -1,31 +1,37 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useMemo } from 'react';
 import { useFonts, Fraunces_700Bold, Fraunces_700Bold_Italic, Fraunces_900Black } from '@expo-google-fonts/fraunces';
 import { Oswald_700Bold } from '@expo-google-fonts/oswald';
 import { CourierPrime_400Regular, CourierPrime_700Bold } from '@expo-google-fonts/courier-prime';
 import * as SplashScreen from 'expo-splash-screen';
-import { colors, spacing, borderWidths, shadows, fontFamilies, typography } from './tokens';
+import { colors, warmColors, spacing, borderWidths, shadows, fontFamilies, typography } from './tokens';
 
 SplashScreen.preventAutoHideAsync();
 
+export type ThemeMode = 'default' | 'warm';
+
 export interface Theme {
-  colors: typeof colors;
+  colors: typeof colors | typeof warmColors;
   spacing: typeof spacing;
   borderWidths: typeof borderWidths;
   shadows: typeof shadows;
   fontFamilies: typeof fontFamilies;
   typography: typeof typography;
+  mode: ThemeMode;
+  toggleTheme: () => void;
 }
 
-const theme: Theme = {
+const defaultTheme: Theme = {
   colors,
   spacing,
   borderWidths,
   shadows,
   fontFamilies,
   typography,
+  mode: 'default',
+  toggleTheme: () => {},
 };
 
-const ThemeContext = createContext<Theme>(theme);
+const ThemeContext = createContext<Theme>(defaultTheme);
 
 export function useTheme(): Theme {
   return useContext(ThemeContext);
@@ -45,6 +51,23 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     CourierPrime_700Bold,
   });
 
+  const [mode, setMode] = useState<ThemeMode>('default');
+
+  const toggleTheme = () => {
+    setMode((prevMode) => (prevMode === 'default' ? 'warm' : 'default'));
+  };
+
+  const currentTheme = useMemo(() => ({
+    colors: mode === 'default' ? colors : warmColors,
+    spacing,
+    borderWidths,
+    shadows,
+    fontFamilies,
+    typography,
+    mode,
+    toggleTheme,
+  }), [mode]);
+
   React.useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
@@ -56,7 +79,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   }
 
   return (
-    <ThemeContext.Provider value={theme}>
+    <ThemeContext.Provider value={currentTheme}>
       {children}
     </ThemeContext.Provider>
   );

@@ -341,7 +341,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               placeholderTextColor={colors.inkMuted}
               value={newTitle}
               onChangeText={setNewTitle}
-              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack }]}
+              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
             />
 
             <TextInput
@@ -350,7 +350,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               value={newDesc}
               onChangeText={setNewDesc}
               multiline
-              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, height: 60 }]}
+              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark, height: 60 }]}
             />
 
             {/* Context Selector */}
@@ -358,15 +358,15 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp }]}>CONTEXT:</Text>
               <Pressable
                 onPress={() => setNewContext('SOLOING')}
-                style={[styles.smallToggle, newContext === 'SOLOING' && { backgroundColor: colors.primary }]}
+                style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, newContext === 'SOLOING' && { backgroundColor: colors.primary }]}
               >
-                <Text style={styles.toggleText}>SOLOING</Text>
+                <Text style={[styles.toggleText, { color: newContext === 'SOLOING' ? colors.cardSurface : colors.textSecondary }]}>SOLOING</Text>
               </Pressable>
               <Pressable
                 onPress={() => setNewContext('COMPING')}
-                style={[styles.smallToggle, newContext === 'COMPING' && { backgroundColor: colors.tertiary }]}
+                style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, newContext === 'COMPING' && { backgroundColor: colors.tertiary }]}
               >
-                <Text style={styles.toggleText}>COMPING</Text>
+                <Text style={[styles.toggleText, { color: newContext === 'COMPING' ? colors.cardSurface : colors.textSecondary }]}>COMPING</Text>
               </Pressable>
             </View>
 
@@ -377,9 +377,9 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 <Pressable
                   key={cat}
                   onPress={() => setNewCategory(cat)}
-                  style={[styles.smallToggle, newCategory === cat && { backgroundColor: colors.secondary }]}
+                  style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, newCategory === cat && { backgroundColor: colors.secondary }]}
                 >
-                  <Text style={styles.toggleText}>{cat.split('_')[0]}</Text>
+                  <Text style={[styles.toggleText, { color: newCategory === cat ? colors.cardSurface : colors.textSecondary }]}>{cat.split('_')[0]}</Text>
                 </Pressable>
               ))}
             </View>
@@ -387,39 +387,39 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
             {/* Numerical Values Row */}
             <View style={styles.modalInputsGrid}>
               <View style={styles.inputCol}>
-                <Text style={styles.colLabel}>MINUTES</Text>
+                <Text style={[styles.colLabel, { color: colors.textSecondary }]}>MINUTES</Text>
                 <TextInput
                   value={newDuration}
                   onChangeText={setNewDuration}
                   keyboardType="numeric"
-                  style={styles.numericInput}
+                  style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
                 />
               </View>
               <View style={styles.inputCol}>
-                <Text style={styles.colLabel}>INTENSITY (1-5)</Text>
+                <Text style={[styles.colLabel, { color: colors.textSecondary }]}>INTENSITY (1-5)</Text>
                 <TextInput
                   value={newIntensity}
                   onChangeText={setNewIntensity}
                   keyboardType="numeric"
-                  style={styles.numericInput}
+                  style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
                 />
               </View>
               <View style={styles.inputCol}>
-                <Text style={styles.colLabel}>BPM</Text>
+                <Text style={[styles.colLabel, { color: colors.textSecondary }]}>BPM</Text>
                 <TextInput
                   value={newBpm}
                   onChangeText={setNewBpm}
                   keyboardType="numeric"
-                  style={styles.numericInput}
+                  style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
                 />
               </View>
               <View style={styles.inputCol}>
-                <Text style={styles.colLabel}>PRIORITY</Text>
+                <Text style={[styles.colLabel, { color: colors.textSecondary }]}>PRIORITY</Text>
                 <TextInput
                   value={newPriority}
                   onChangeText={setNewPriority}
                   keyboardType="numeric"
-                  style={styles.numericInput}
+                  style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
                 />
               </View>
             </View>
@@ -429,8 +429,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               onPress={() => setNewIsKeyBased(!newIsKeyBased)}
               style={styles.keyBasedRow}
             >
-              <Text style={styles.checkbox}>{newIsKeyBased ? '[✓]' : '[ ]'}</Text>
-              <Text style={[styles.keyBasedLabel, { fontFamily: typography.fontStamp }]}>
+              <Text style={[styles.checkbox, { color: colors.textSecondary }]}>{newIsKeyBased ? '[✓]' : '[ ]'}</Text>
+              <Text style={[styles.keyBasedLabel, { fontFamily: typography.fontStamp, color: colors.textSecondary }]}>
                 USE 12-KEY CIRCLE OF FIFTHS STAMP PAD
               </Text>
             </Pressable>
@@ -595,7 +595,6 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 13,
     marginBottom: 10,
-    backgroundColor: '#FAF6EE',
   },
   modalRow: {
     flexDirection: 'row',
@@ -609,10 +608,8 @@ const styles = StyleSheet.create({
   },
   smallToggle: {
     borderWidth: 1,
-    borderColor: '#181512',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: '#DDD2BC',
   },
   toggleText: {
     fontSize: 10,
@@ -634,11 +631,9 @@ const styles = StyleSheet.create({
   },
   numericInput: {
     borderWidth: 1.5,
-    borderColor: '#181512',
     padding: 6,
     fontSize: 12,
     textAlign: 'center',
-    backgroundColor: '#FAF6EE',
   },
   keyBasedRow: {
     flexDirection: 'row',

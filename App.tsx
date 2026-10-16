@@ -61,7 +61,7 @@ const PRESET_STANDARDS: { title: string; defaultKey: PitchKey }[] = [
 ];
 
 function AppContent() {
-  const { colors, typography } = useTheme();
+  const { colors, typography, mode, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<TabRoute>('shed');
   const [activeStandard, setActiveStandard] = useState<ActiveStandard>(getActiveStandard);
   const [availableMinutes, setAvailableMinutes] = useState(30);
@@ -163,41 +163,67 @@ function AppContent() {
       {/* Blue Note Master Navigation Dock */}
       <View style={[styles.navBar, { backgroundColor: colors.bgSurface, borderColor: colors.inkBlack }]}>
         <TouchableOpacity
-          style={[styles.navTab, activeTab === 'shed' && styles.navTabActive]}
+          style={[
+            styles.navTab,
+            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
+            activeTab === 'shed' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+          ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setActiveTab('shed');
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, activeTab === 'shed' && styles.navTabTextActive]}>
+          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'shed' && { color: colors.accentSecondary }]}>
             [ THE SHED ]
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.navTab, activeTab === 'crate' && styles.navTabActive]}
+          style={[
+            styles.navTab,
+            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
+            activeTab === 'crate' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+          ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setActiveTab('crate');
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, activeTab === 'crate' && styles.navTabTextActive]}>
+          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'crate' && { color: colors.accentSecondary }]}>
             [ THE CRATE ]
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.navTab, activeTab === 'callsheet' && styles.navTabActive]}
+          style={[
+            styles.navTab,
+            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
+            activeTab === 'callsheet' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+          ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setActiveTab('callsheet');
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, activeTab === 'callsheet' && styles.navTabTextActive]}>
+          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'callsheet' && { color: colors.accentSecondary }]}>
             [ CALL SHEET ]
+          </Text>
+        </TouchableOpacity>
+
+        {/* Theme Toggle Button */}
+        <TouchableOpacity
+          style={[styles.navTab, { flex: 0.5, borderLeftWidth: 1, borderColor: colors.borderLight, backgroundColor: colors.bgPrimary }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            toggleTheme();
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.navTabText, { color: colors.textSecondary, fontSize: 16 }]}>
+            {mode === 'default' ? '🌙' : '☀️'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -219,7 +245,7 @@ function AppContent() {
               placeholderTextColor={colors.inkMuted}
               value={newStandardTitle}
               onChangeText={setNewStandardTitle}
-              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack }]}
+              style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
             />
 
             {/* Quick Pick Presets */}
@@ -373,23 +399,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#3A2F26',
-    backgroundColor: '#16110E',
   },
   navTabActive: {
-    borderColor: '#D49B35',
-    backgroundColor: '#2A2018',
     borderBottomWidth: 3,
-    borderBottomColor: '#D95D39',
   },
   navTabText: {
     fontFamily: 'Oswald_700Bold',
     fontSize: 12,
     letterSpacing: 2,
-    color: '#A69686',
-  },
-  navTabTextActive: {
-    color: '#D49B35',
   },
   modalOverlay: {
     flex: 1,
@@ -414,7 +431,6 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 13,
     marginBottom: 8,
-    backgroundColor: '#FAF6EE',
   },
   presetHeader: {
     fontSize: 11,
