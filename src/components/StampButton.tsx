@@ -86,6 +86,9 @@ export const StampButton: React.FC<StampButtonProps> = ({
       />
 
       <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         onPress={handlePress}
