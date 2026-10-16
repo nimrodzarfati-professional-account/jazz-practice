@@ -65,8 +65,19 @@ function getDb(): SyncDb {
       runSync(sql: string, params: any[] = []) {
         if (typeof localStorage === 'undefined') return;
         if (sql.includes('INSERT INTO active_standard')) {
-          const [id, title, defaultKey, startedAt, rotationCycleDays] = params;
-          const std = { id, title, defaultKey, startedAt, rotationCycleDays };
+          let std;
+          if (params.length === 5) {
+            const [id, title, defaultKey, startedAt, rotationCycleDays] = params;
+            std = { id, title, defaultKey, startedAt, rotationCycleDays };
+          } else {
+            std = {
+              id: 'std_1',
+              title: 'Stella By Starlight',
+              defaultKey: 'Bb',
+              startedAt: params[0] || new Date(Date.now() - 5 * 86400000).toISOString(),
+              rotationCycleDays: 14,
+            };
+          }
           localStorage.setItem(STD_KEY, JSON.stringify(std));
           return;
         }
@@ -217,8 +228,8 @@ export function initDatabase(): void {
   if (!stdCount || stdCount.count === 0) {
     db.runSync(
       `INSERT INTO active_standard (id, title, defaultKey, startedAt, rotationCycleDays)
-       VALUES ('std_1', 'Stella By Starlight', 'Bb', ?, 14)`,
-      [new Date(Date.now() - 5 * 86400000).toISOString()] // Day 6 of 14
+       VALUES (?, ?, ?, ?, ?)`,
+      ['std_1', 'Stella By Starlight', 'Bb', new Date(Date.now() - 5 * 86400000).toISOString(), 14] // Day 6 of 14
     );
   }
 
@@ -372,21 +383,21 @@ export function getActiveStandard(): ActiveStandard {
   initDatabase();
   const db = getDb();
   const row = db.getFirstSync<any>('SELECT * FROM active_standard LIMIT 1');
-  if (!row) {
+  if (!row || !row.title || !row.startedAt) {
     return {
       id: 'std_1',
       title: 'Stella By Starlight',
       defaultKey: 'Bb',
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
       rotationCycleDays: 14,
     };
   }
   return {
-    id: row.id,
+    id: row.id || 'std_1',
     title: row.title,
-    defaultKey: row.defaultKey as PitchKey,
+    defaultKey: (row.defaultKey as PitchKey) || 'Bb',
     startedAt: row.startedAt,
-    rotationCycleDays: row.rotationCycleDays,
+    rotationCycleDays: Number(row.rotationCycleDays) || 14,
   };
 }
 

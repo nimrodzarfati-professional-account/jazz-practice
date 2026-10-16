@@ -17,10 +17,10 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
 
   const startedDate = standard?.startedAt ? new Date(standard.startedAt) : new Date();
   const now = new Date();
-  const daysElapsed = Math.max(
-    1,
-    Math.floor((now.getTime() - startedDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
-  );
+  const diffTime = now.getTime() - startedDate.getTime();
+  const daysElapsed = Number.isNaN(diffTime)
+    ? 1
+    : Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
   const isDueToRotate = daysElapsed >= (standard?.rotationCycleDays || 14);
 
   const handleRotatePress = () => {
