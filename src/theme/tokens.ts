@@ -48,6 +48,45 @@ export const colors = {
   amberGlowStrong: 'rgba(212, 155, 53, 0.35)',
 } as const;
 
+export const warmColors = {
+  // Autumn Dark Brown Palette
+  inkBlack: '#E8DFD3',          // Light cream ink for dark cards
+  cardSurface: '#2E221A',       // Rich warm brown
+  recessedSurface: '#1F1711',   // Darker recessed brown
+  canvasBg: '#120D0A',          // Very dark roasted bean
+  primary: '#C86B3E',           // Burnt orange / Autumn leaf
+  secondary: '#8C382A',         // Muted oxblood / Maple
+  tertiary: '#B8863A',          // Aged brass / Amber
+  inkMuted: '#8A7A6E',          // Warm grey/brown
+
+  // Legacy & Semantic Aliases
+  bgPrimary: '#120D0A',
+  bgSurface: '#1F1711',
+  bgCard: '#2E221A',
+  bgCardDark: '#1A120D',
+  accentPrimary: '#C86B3E',
+  accentSecondary: '#B8863A',
+  accentTertiary: '#615A45',
+  accentAlert: '#8C382A',
+  textPrimary: '#E8DFD3',
+  textSecondary: '#BAA998',
+  textDark: '#E8DFD3',          // Readable light text inside inputs on dark cards
+  textMuted: '#8A7A6E',
+  border: '#362A21',
+  borderLight: '#362A21',
+  shadowHard: '#080504',
+  soloing: '#C86B3E',
+  comping: '#B8863A',
+  maintenance: '#615A45',
+  transcribing: '#B8863A',
+  newConcept: '#C86B3E',
+  stamped: '#8C382A',
+  stampedFaded: 'rgba(140, 56, 42, 0.3)',
+  disabled: '#362A21',
+  amberGlow: 'rgba(184, 134, 58, 0.15)',
+  amberGlowStrong: 'rgba(184, 134, 58, 0.35)',
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,

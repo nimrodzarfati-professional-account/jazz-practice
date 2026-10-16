@@ -102,7 +102,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
         </View>
 
         {/* Context Selector */}
-        <View style={styles.contextFilterRow}>
+        <View style={[styles.contextFilterRow, { borderTopColor: colors.recessedSurface }]}>
           <Text style={[styles.filterLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
             TARGET FOCUS:
           </Text>
@@ -139,7 +139,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
 
       {/* Assembled Knapsack Routine Preview */}
       <CreamBlock>
-        <View style={styles.queueHeader}>
+        <View style={[styles.queueHeader, { borderBottomColor: colors.inkBlack }]}>
           <Text style={[styles.queueTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
             SCHEDULED ROUTINE ({previewQueue.length} BLOCKS • {totalAllocatedMinutes}m)
           </Text>
@@ -233,7 +233,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderTopWidth: 1.5,
-    borderTopColor: '#DDD2BC',
     paddingTop: 10,
     marginTop: 6,
   },
@@ -255,7 +254,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1.5,
-    borderBottomColor: '#181512',
     paddingBottom: 6,
     marginBottom: 8,
   },

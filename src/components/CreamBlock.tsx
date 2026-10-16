@@ -22,7 +22,7 @@ export const CreamBlock: React.FC<CreamBlockProps> = ({
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: colors.inkBlack,
+            backgroundColor: colors.shadowHard,
             top: shadowOffset,
             left: shadowOffset,
             right: -shadowOffset,

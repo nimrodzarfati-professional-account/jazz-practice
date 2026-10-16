@@ -230,7 +230,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
         </View>
 
         {/* Queue Navigator: Block X of Y */}
-        <View style={styles.navRow}>
+        <View style={[styles.navRow, { borderColor: colors.recessedSurface }]}>
           <StampButton
             label="← PREV"
             variant="tertiary"
@@ -301,7 +301,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#DDD2BC',
     marginVertical: 6,
   },
 });
