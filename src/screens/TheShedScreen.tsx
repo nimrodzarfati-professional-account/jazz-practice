@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
 import { ActiveStandard, PitchKey, ScoredExercise } from '../types/models';
@@ -7,6 +7,7 @@ import { CreamBlock } from '../components/CreamBlock';
 import { ActiveStandardBanner } from '../components/ActiveStandardBanner';
 import { KeyStampGrid } from '../components/KeyStampGrid';
 import { StampButton } from '../components/StampButton';
+import { StampBadge } from '../components/StampBadge';
 import {
   graduateExerciseToMaintenance,
   updateExerciseProgress,
@@ -18,6 +19,7 @@ interface TheShedScreenProps {
   activeStandard: ActiveStandard;
   onRefreshData: () => void;
   onOpenRotateStandardModal: () => void;
+  onUpdateQueueItem?: (updatedExercise: ScoredExercise) => void;
 }
 
 export const TheShedScreen: React.FC<TheShedScreenProps> = ({
@@ -25,6 +27,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   activeStandard,
   onRefreshData,
   onOpenRotateStandardModal,
+  onUpdateQueueItem,
 }) => {
   const { colors, typography } = useTheme();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -36,6 +39,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   );
   const [isRunning, setIsRunning] = useState(false);
   const [isMetronomeOn, setIsMetronomeOn] = useState(false);
+  const [currentBeat, setCurrentBeat] = useState(0);
 
   // Whenever the active exercise changes, reset the timer to THAT exercise's duration
   useEffect(() => {
@@ -43,11 +47,20 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       setIsRunning(false);
       setSecondsLeft(activeExercise.allocatedMinutes * 60);
       if (isMetronomeOn) {
-        audioMetronomeService.startMetronome(activeExercise.currentBpm);
+        audioMetronomeService.startMetronome(activeExercise.currentBpm, (beat) => {
+          setCurrentBeat(beat);
+        });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeExercise?.id, activeExercise?.allocatedMinutes]);
+
+  // Clean up metronome on unmount
+  useEffect(() => {
+    return () => {
+      audioMetronomeService.stopMetronome();
+    };
+  }, []);
 
   // Countdown tick loop
   useEffect(() => {
@@ -88,13 +101,35 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 
   const handleToggleKey = (key: PitchKey) => {
     if (!activeExercise) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const exists = activeExercise.masteredKeys.includes(key);
     const updatedKeys = exists
       ? activeExercise.masteredKeys.filter((k) => k !== key)
       : [...activeExercise.masteredKeys, key];
 
     updateExerciseProgress(activeExercise.id, activeExercise.currentBpm, updatedKeys, false);
-    onRefreshData();
+    const updated = { ...activeExercise, masteredKeys: updatedKeys };
+    if (onUpdateQueueItem) {
+      onUpdateQueueItem(updated);
+    }
+  };
+
+  const handleBpmStep = (delta: number) => {
+    if (!activeExercise) return;
+    const newBpm = Math.max(30, Math.min(320, activeExercise.currentBpm + delta));
+    if (newBpm === activeExercise.currentBpm) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    updateExerciseProgress(activeExercise.id, newBpm, activeExercise.masteredKeys, false);
+    const updated = { ...activeExercise, currentBpm: newBpm };
+    if (onUpdateQueueItem) {
+      onUpdateQueueItem(updated);
+    }
+    if (isMetronomeOn) {
+      audioMetronomeService.startMetronome(newBpm, (beat) => {
+        setCurrentBeat(beat);
+      });
+    }
   };
 
   const handleGraduate = () => {
@@ -109,8 +144,11 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     if (isMetronomeOn) {
       audioMetronomeService.stopMetronome();
       setIsMetronomeOn(false);
+      setCurrentBeat(0);
     } else {
-      audioMetronomeService.startMetronome(activeExercise.currentBpm);
+      audioMetronomeService.startMetronome(activeExercise.currentBpm, (beat) => {
+        setCurrentBeat(beat);
+      });
       setIsMetronomeOn(true);
     }
   };
@@ -144,11 +182,56 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     );
   }
 
+  const totalAllocatedSec = Math.max(1, activeExercise.allocatedMinutes * 60);
+  const progressPct = Math.max(0, Math.min(100, ((totalAllocatedSec - secondsLeft) / totalAllocatedSec) * 100));
+
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
+      {/* Clickable Horizontal Active Queue Strip */}
+      {queue.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.queueStrip}
+          contentContainerStyle={styles.queueStripContent}
+        >
+          {queue.map((item, idx) => {
+            const isCurrent = idx === activeIndex;
+            return (
+              <Pressable
+                key={`${item.id}-${idx}`}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveIndex(idx);
+                }}
+                style={[
+                  styles.queuePill,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: isCurrent ? colors.primary : colors.cardSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.queuePillText,
+                    {
+                      fontFamily: typography.fontStamp,
+                      color: isCurrent ? colors.cardSurface : colors.inkBlack,
+                    },
+                  ]}
+                >
+                  {String(idx + 1).padStart(2, '0')} {item.title.length > 18 ? item.title.substring(0, 16) + '...' : item.title} ({item.allocatedMinutes}m)
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
       {/* 1-2 Week Active Jazz Standard Strip */}
       <ActiveStandardBanner
         standard={activeStandard}
@@ -158,18 +241,10 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       {/* Active Exercise Cream Card */}
       <CreamBlock>
         <View style={styles.metaRow}>
-          <Text
-            style={[
-              styles.badge,
-              {
-                backgroundColor: colors.primary,
-                color: colors.cardSurface,
-                fontFamily: typography.fontStamp,
-              },
-            ]}
-          >
-            {activeExercise.context} // {activeExercise.category}
-          </Text>
+          <View style={styles.badgeRow}>
+            <StampBadge label={activeExercise.context} type={activeExercise.context} />
+            <StampBadge label={activeExercise.category.replace('_', ' ')} type={activeExercise.category} />
+          </View>
           <Text style={{ fontFamily: typography.fontMonoBold, fontSize: 12, color: colors.inkBlack }}>
             {activeExercise.allocatedMinutes}m BLOCK • URGENCY {activeExercise.urgencyScore}%
           </Text>
@@ -204,28 +279,96 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
           ]}
         >
-          <View>
-            <Text style={{ fontFamily: typography.fontStamp, fontSize: 10, color: colors.inkMuted }}>
-              EXERCISE TIMER ({activeExercise.allocatedMinutes} MIN SET)
-            </Text>
-            <Text style={[styles.timerDigits, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
-              {mm}:{ss}
-            </Text>
+          {/* Linear Progress Bar */}
+          <View style={[styles.progressBarTrack, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
+            <View style={[styles.progressBarFill, { width: `${progressPct}%`, backgroundColor: colors.primary }]} />
           </View>
 
-          <View style={styles.timerControls}>
-            <StampButton
-              label={isRunning ? '⏸ PAUSE' : '▶ START'}
-              variant="primary"
-              size="md"
-              onPress={() => setIsRunning(!isRunning)}
-            />
-            <StampButton
-              label={isMetronomeOn ? 'STOP CLICK' : `CLICK (${activeExercise.currentBpm})`}
-              variant="tertiary"
-              size="sm"
-              onPress={toggleMetronome}
-            />
+          <View style={styles.timerTopRow}>
+            <View>
+              <Text style={{ fontFamily: typography.fontStamp, fontSize: 10, color: colors.inkMuted }}>
+                EXERCISE TIMER ({activeExercise.allocatedMinutes} MIN SET)
+              </Text>
+              <Text style={[styles.timerDigits, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+                {mm}:{ss}
+              </Text>
+            </View>
+
+            <View style={styles.timerControls}>
+              <StampButton
+                label={isRunning ? '⏸ PAUSE' : '▶ START'}
+                variant="primary"
+                size="md"
+                onPress={() => setIsRunning(!isRunning)}
+              />
+            </View>
+          </View>
+
+          {/* Metronome Control Row with -5 / +5 Steppers & Visual 4-Beat Pulse */}
+          <View style={[styles.metronomeSection, { borderTopColor: colors.inkBlack }]}>
+            <View style={styles.bpmRow}>
+              <Pressable
+                onPress={() => handleBpmStep(-5)}
+                style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
+              >
+                <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>-5</Text>
+              </Pressable>
+
+              <Text style={[styles.bpmValueText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+                ♩ {activeExercise.currentBpm} BPM
+              </Text>
+
+              <Pressable
+                onPress={() => handleBpmStep(5)}
+                style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
+              >
+                <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>+5</Text>
+              </Pressable>
+
+              <StampButton
+                label={isMetronomeOn ? 'STOP CLICK' : 'START CLICK'}
+                variant={isMetronomeOn ? 'secondary' : 'tertiary'}
+                size="sm"
+                onPress={toggleMetronome}
+              />
+            </View>
+
+            {/* Visual 4-Beat Pulse Indicators */}
+            <View style={styles.beatPulseRow}>
+              {[1, 2, 3, 4].map((beat) => {
+                const isCurrent = isMetronomeOn && currentBeat === beat;
+                const isDownbeat = beat === 1;
+                return (
+                  <View
+                    key={`beat-${beat}`}
+                    style={[
+                      styles.beatDot,
+                      {
+                        borderColor: colors.inkBlack,
+                        backgroundColor: isCurrent
+                          ? isDownbeat
+                            ? colors.primary
+                            : colors.tertiary
+                          : colors.cardSurface,
+                        transform: [{ scale: isCurrent ? 1.2 : 1 }],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.beatNumber,
+                        {
+                          fontFamily: typography.fontMonoBold,
+                          color: isCurrent ? colors.cardSurface : colors.inkMuted,
+                        },
+                      ]}
+                    >
+                      {beat}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
           </View>
         </View>
 
@@ -275,14 +418,52 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 14 },
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, letterSpacing: 1 },
+  queueStrip: {
+    marginBottom: 10,
+  },
+  queueStripContent: {
+    gap: 6,
+    flexDirection: 'row',
+  },
+  queuePill: {
+    borderWidth: 1.5,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+  },
+  queuePillText: {
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
   title: { fontSize: 21, marginTop: 8, marginBottom: 6 },
   standardCallout: { borderWidth: 1.5, padding: 7, marginBottom: 8 },
   desc: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
   timerWell: {
     borderWidth: 2,
     padding: 12,
+    marginBottom: 10,
+  },
+  progressBarTrack: {
+    height: 6,
+    borderWidth: 1,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+  },
+  timerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -293,6 +474,45 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     gap: 6,
     alignItems: 'flex-end',
+  },
+  metronomeSection: {
+    borderTopWidth: 1.5,
+    paddingTop: 10,
+  },
+  bpmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bpmStepBtn: {
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bpmStepText: {
+    fontSize: 12,
+  },
+  bpmValueText: {
+    fontSize: 13,
+    flex: 1,
+    textAlign: 'center',
+  },
+  beatPulseRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 10,
+  },
+  beatDot: {
+    width: 32,
+    height: 24,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  beatNumber: {
+    fontSize: 11,
   },
   navRow: {
     flexDirection: 'row',

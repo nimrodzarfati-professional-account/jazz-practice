@@ -126,6 +126,12 @@ function AppContent() {
     refreshData();
   };
 
+  const handleUpdateQueueItem = useCallback((updatedItem: ScoredExercise) => {
+    setQueue((prevQueue) =>
+      prevQueue.map((item) => (item.id === updatedItem.id ? updatedItem : item))
+    );
+  }, []);
+
   return (
     <SafeAreaView style={[styles.rootContainer, { backgroundColor: colors.canvasBg }]}>
       <StatusBar style="light" />
@@ -138,6 +144,7 @@ function AppContent() {
             activeStandard={activeStandard}
             onRefreshData={refreshData}
             onOpenRotateStandardModal={() => setShowRotateModal(true)}
+            onUpdateQueueItem={handleUpdateQueueItem}
           />
         )}
         {activeTab === 'crate' && (
@@ -162,13 +169,13 @@ function AppContent() {
         )}
       </View>
 
-      {/* Blue Note Master Navigation Dock */}
-      <View style={[styles.navBar, { backgroundColor: colors.bgSurface, borderColor: colors.inkBlack }]}>
+      {/* Cream Block Master Navigation Dock */}
+      <View style={[styles.navBar, { backgroundColor: colors.cardSurface, borderTopColor: colors.inkBlack }]}>
         <TouchableOpacity
           style={[
             styles.navTab,
-            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
-            activeTab === 'shed' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+            activeTab === 'shed' && { backgroundColor: colors.primary },
           ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -176,7 +183,15 @@ function AppContent() {
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'shed' && { color: colors.accentSecondary }]}>
+          <Text
+            style={[
+              styles.navTabText,
+              {
+                fontFamily: typography.fontStamp,
+                color: activeTab === 'shed' ? colors.cardSurface : colors.inkBlack,
+              },
+            ]}
+          >
             [ THE SHED ]
           </Text>
         </TouchableOpacity>
@@ -184,8 +199,8 @@ function AppContent() {
         <TouchableOpacity
           style={[
             styles.navTab,
-            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
-            activeTab === 'crate' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+            activeTab === 'crate' && { backgroundColor: colors.primary },
           ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -193,7 +208,15 @@ function AppContent() {
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'crate' && { color: colors.accentSecondary }]}>
+          <Text
+            style={[
+              styles.navTabText,
+              {
+                fontFamily: typography.fontStamp,
+                color: activeTab === 'crate' ? colors.cardSurface : colors.inkBlack,
+              },
+            ]}
+          >
             [ THE CRATE ]
           </Text>
         </TouchableOpacity>
@@ -201,8 +224,8 @@ function AppContent() {
         <TouchableOpacity
           style={[
             styles.navTab,
-            { borderColor: colors.borderLight, backgroundColor: colors.bgPrimary },
-            activeTab === 'callsheet' && [styles.navTabActive, { borderColor: colors.accentSecondary, backgroundColor: colors.bgCardDark, borderBottomColor: colors.accentPrimary }]
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+            activeTab === 'callsheet' && { backgroundColor: colors.primary },
           ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -210,21 +233,33 @@ function AppContent() {
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, { color: colors.textSecondary }, activeTab === 'callsheet' && { color: colors.accentSecondary }]}>
+          <Text
+            style={[
+              styles.navTabText,
+              {
+                fontFamily: typography.fontStamp,
+                color: activeTab === 'callsheet' ? colors.cardSurface : colors.inkBlack,
+              },
+            ]}
+          >
             [ CALL SHEET ]
           </Text>
         </TouchableOpacity>
 
         {/* Theme Toggle Button */}
         <TouchableOpacity
-          style={[styles.navTab, { flex: 0.5, borderLeftWidth: 1, borderColor: colors.borderLight, backgroundColor: colors.bgPrimary }]}
+          style={[
+            styles.navTab,
+            styles.navTabTheme,
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+          ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             toggleTheme();
           }}
           activeOpacity={0.8}
         >
-          <Text style={[styles.navTabText, { color: colors.textSecondary, fontSize: 16 }]}>
+          <Text style={[styles.navTabText, { fontSize: 16 }]}>
             {mode === 'default' ? '🌙' : '☀️'}
           </Text>
         </TouchableOpacity>
@@ -391,7 +426,7 @@ const styles = StyleSheet.create({
   navBar: {
     flexDirection: 'row',
     borderTopWidth: 2,
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     gap: 6,
   },
@@ -400,15 +435,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
-  navTabActive: {
-    borderBottomWidth: 3,
+  navTabTheme: {
+    flex: 0.4,
   },
   navTabText: {
     fontFamily: 'Oswald_700Bold',
     fontSize: 12,
-    letterSpacing: 2,
+    letterSpacing: 1.5,
   },
   modalOverlay: {
     flex: 1,

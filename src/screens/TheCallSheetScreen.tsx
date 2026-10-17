@@ -12,6 +12,7 @@ import { ActiveStandard, MusicalContext, ScoredExercise } from '../types/models'
 import { CreamBlock } from '../components/CreamBlock';
 import { StudioFader } from '../components/StudioFader';
 import { StampButton } from '../components/StampButton';
+import { StampBadge } from '../components/StampBadge';
 import { ActiveStandardBanner } from '../components/ActiveStandardBanner';
 import { scheduleNextShedAlarm } from '../services/AlarmManager';
 
@@ -26,6 +27,29 @@ interface TheCallSheetScreenProps {
   onChangeContextFilter: (filter: 'ALL' | MusicalContext) => void;
   onStartSession: () => void;
   onOpenRotateStandardModal: () => void;
+}
+
+const SESSION_PRESETS = [
+  { label: 'EXPRESS 20m', minutes: 20, intensity: 3 },
+  { label: 'STANDARD 45m', minutes: 45, intensity: 3 },
+  { label: 'WOODSHED 90m', minutes: 90, intensity: 4 },
+];
+
+function formatUrgencyReason(item: ScoredExercise): string {
+  if (item.skippedCount > 0) {
+    return `${item.skippedCount}x skipped`;
+  }
+  if (!item.lastPracticedAt) {
+    return 'Never practiced';
+  }
+  const days = Math.max(0, (Date.now() - new Date(item.lastPracticedAt).getTime()) / 86400000);
+  if (days >= 2) {
+    return `${Math.round(days)}d decay`;
+  }
+  if (item.isKeyBased && item.masteredKeys.length < 12) {
+    return `${12 - item.masteredKeys.length} keys unmastered`;
+  }
+  return `Priority ${item.basePriority}/10`;
 }
 
 export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
@@ -76,6 +100,42 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
         <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
           Dial in your session window and mental stamina to assemble today’s optimal routine.
         </Text>
+
+        {/* 1-Tap Studio Presets */}
+        <View style={styles.presetsRow}>
+          {SESSION_PRESETS.map((preset) => {
+            const isSelected = availableMinutes === preset.minutes && intensity === preset.intensity;
+            return (
+              <Pressable
+                key={preset.label}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onChangeMinutes(preset.minutes);
+                  onChangeIntensity(preset.intensity);
+                }}
+                style={[
+                  styles.presetBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: isSelected ? colors.primary : colors.recessedSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.presetBtnText,
+                    {
+                      fontFamily: typography.fontStamp,
+                      color: isSelected ? colors.cardSurface : colors.inkBlack,
+                    },
+                  ]}
+                >
+                  {preset.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
         <View style={styles.fadersRow}>
           <StudioFader
@@ -161,14 +221,18 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
           >
             <View style={styles.itemLeft}>
               <Text style={[styles.itemNumber, { fontFamily: typography.fontMonoBold, color: colors.inkMuted }]}>
-                0{idx + 1}
+                {String(idx + 1).padStart(2, '0')}
               </Text>
-              <View>
+              <View style={{ flex: 1, paddingRight: 6 }}>
                 <Text style={[styles.itemTitle, { fontFamily: typography.fontHeading, color: colors.inkBlack }]}>
                   {item.title}
                 </Text>
+                <View style={styles.badgesInline}>
+                  <StampBadge label={item.context} type={item.context} />
+                  <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
+                </View>
                 <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-                  {item.context} // {item.category} • Urgency: {item.urgencyScore}%
+                  Urgency: {item.urgencyScore}% • {formatUrgencyReason(item)}
                 </Text>
               </View>
             </View>
@@ -223,10 +287,26 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 10,
   },
+  presetsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  presetBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetBtnText: {
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
   fadersRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginVertical: 12,
+    marginVertical: 8,
   },
   contextFilterRow: {
     flexDirection: 'row',
@@ -274,20 +354,27 @@ const styles = StyleSheet.create({
   },
   itemLeft: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
     flex: 1,
     paddingRight: 6,
   },
   itemNumber: {
     fontSize: 14,
+    marginTop: 2,
   },
   itemTitle: {
-    fontSize: 14,
+    fontSize: 15,
+  },
+  badgesInline: {
+    flexDirection: 'row',
+    gap: 6,
+    marginVertical: 4,
+    flexWrap: 'wrap',
   },
   itemMeta: {
-    fontSize: 10,
-    marginTop: 1,
+    fontSize: 11,
+    marginTop: 2,
   },
   durationBadge: {
     borderWidth: 1.5,

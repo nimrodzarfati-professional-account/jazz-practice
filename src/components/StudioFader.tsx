@@ -42,13 +42,24 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
     return Math.max(min, Math.min(max, stepped));
   };
 
+  const startValueRef = useRef(value);
+  const currentValueRef = useRef(value);
+  currentValueRef.current = value;
+
   const handleTrackPress = (evt: GestureResponderEvent) => {
     const { locationY } = evt.nativeEvent;
-    // Top is max, bottom is min
     const fraction = 1 - Math.max(0, Math.min(1, locationY / height));
     const rawVal = min + fraction * (max - min);
     const newVal = clampValue(rawVal);
-    if (newVal !== value) {
+    if (newVal !== currentValueRef.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onChange(newVal);
+    }
+  };
+
+  const handleStepChange = (delta: number) => {
+    const newVal = clampValue(currentValueRef.current + delta);
+    if (newVal !== currentValueRef.current) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onChange(newVal);
     }
@@ -57,12 +68,16 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startValueRef.current = currentValueRef.current;
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
       onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-        // Delta Y inverted: dragging up increases value
         const deltaFraction = -gestureState.dy / height;
-        const rawVal = value + deltaFraction * (max - min);
+        const rawVal = startValueRef.current + deltaFraction * (max - min);
         const newVal = clampValue(rawVal);
-        if (newVal !== value) {
+        if (newVal !== currentValueRef.current) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onChange(newVal);
         }
@@ -70,18 +85,14 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
     })
   ).current;
 
-  // Percentage from bottom (0% at min, 100% at max)
   const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
-  // Cap position from top
   const capTop = height - (percent / 100) * (height - 28) - 28;
 
-  // Tick marks
   const tickCount = 6;
   const ticks = Array.from({ length: tickCount }, (_, i) => i);
 
   return (
     <View style={styles.faderContainer}>
-      {/* Top Value Readout */}
       <View
         style={[
           styles.readoutBox,
@@ -102,22 +113,22 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
         </Text>
       </View>
 
-      {/* Main Track & Cap Area */}
       <View style={[styles.trackWrapper, { height }]}>
-        {/* Analog Tick Marks on Left and Right */}
         <View style={styles.ticksColumn}>
           {ticks.map((t) => (
             <View
-              key={`tick-${t}`}
+              key={`tick-l-${t}`}
               style={[
                 styles.tickLine,
-                { backgroundColor: t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted },
+                {
+                  backgroundColor:
+                    t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted,
+                },
               ]}
             />
           ))}
         </View>
 
-        {/* Fader Slot */}
         <Pressable
           style={[
             styles.trackSlot,
@@ -129,7 +140,6 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
           ]}
           onPress={handleTrackPress}
         >
-          {/* Active Fill from bottom */}
           <View
             style={[
               styles.trackFill,
@@ -140,7 +150,6 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
             ]}
           />
 
-          {/* Draggable Studio Bakelite Fader Cap */}
           <View
             {...panResponder.panHandlers}
             style={[
@@ -152,7 +161,6 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
               },
             ]}
           >
-            {/* Center Indent Marker */}
             <View style={[styles.capIndicator, { backgroundColor: colors.primary }]} />
           </View>
         </Pressable>
@@ -163,14 +171,51 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
               key={`tick-r-${t}`}
               style={[
                 styles.tickLine,
-                { backgroundColor: t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted },
+                {
+                  backgroundColor:
+                    t === 0 || t === tickCount - 1 ? colors.tertiary : colors.inkMuted,
+                },
               ]}
             />
           ))}
         </View>
       </View>
 
-      {/* Bottom Label */}
+      <View style={styles.stepperRow}>
+        <Pressable
+          onPress={() => handleStepChange(-step)}
+          style={[
+            styles.stepBtn,
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+          ]}
+        >
+          <Text
+            style={[
+              styles.stepBtnText,
+              { fontFamily: typography.fontMonoBold, color: colors.inkBlack },
+            ]}
+          >
+            -
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => handleStepChange(step)}
+          style={[
+            styles.stepBtn,
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+          ]}
+        >
+          <Text
+            style={[
+              styles.stepBtnText,
+              { fontFamily: typography.fontMonoBold, color: colors.inkBlack },
+            ]}
+          >
+            +
+          </Text>
+        </Pressable>
+      </View>
+
       <Text
         style={[
           styles.label,
@@ -191,10 +236,10 @@ const styles = StyleSheet.create({
   },
   readoutBox: {
     borderWidth: 1.5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     marginBottom: 8,
-    minWidth: 54,
+    minWidth: 64,
     alignItems: 'center',
   },
   valueText: {
@@ -218,7 +263,7 @@ const styles = StyleSheet.create({
     height: 1.5,
   },
   trackSlot: {
-    width: 22,
+    width: 24,
     borderWidth: 2,
     position: 'relative',
     alignItems: 'center',
@@ -227,11 +272,11 @@ const styles = StyleSheet.create({
   },
   trackFill: {
     width: '100%',
-    opacity: 0.8,
+    opacity: 0.85,
   },
   faderCap: {
     position: 'absolute',
-    left: -12,
+    left: -11,
     width: 42,
     height: 26,
     borderWidth: 2,
@@ -240,11 +285,27 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   capIndicator: {
+    width: 26,
+    height: 2.5,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  stepBtn: {
+    borderWidth: 1.5,
     width: 28,
-    height: 2,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: {
+    fontSize: 14,
+    lineHeight: 16,
   },
   label: {
-    marginTop: 8,
+    marginTop: 6,
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: 'uppercase',

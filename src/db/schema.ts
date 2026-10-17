@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS exercises (
   masteredKeys TEXT NOT NULL DEFAULT '[]',
   usesActiveStandard INTEGER NOT NULL DEFAULT 0,
   lastPracticedAt TEXT,
-  skippedCount INTEGER NOT NULL DEFAULT 0
+  skippedCount INTEGER NOT NULL DEFAULT 0,
+  rotationChangedAt TEXT,
+  accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0,
+  accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0
 );
 `;
 
@@ -50,6 +53,9 @@ export const SEED_EXERCISES: Exercise[] = [
     usesActiveStandard: true,
     lastPracticedAt: null,
     skippedCount: 0,
+    rotationChangedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+    accumulatedInRotationMs: 0,
+    accumulatedOutRotationMs: 0,
   },
   {
     id: 'ex_2',
@@ -67,6 +73,9 @@ export const SEED_EXERCISES: Exercise[] = [
     usesActiveStandard: true,
     lastPracticedAt: null,
     skippedCount: 0,
+    rotationChangedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+    accumulatedInRotationMs: 0,
+    accumulatedOutRotationMs: 0,
   },
   {
     id: 'ex_3',
@@ -84,5 +93,8 @@ export const SEED_EXERCISES: Exercise[] = [
     usesActiveStandard: false,
     lastPracticedAt: null,
     skippedCount: 0,
+    rotationChangedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+    accumulatedInRotationMs: 0,
+    accumulatedOutRotationMs: 0,
   },
 ];

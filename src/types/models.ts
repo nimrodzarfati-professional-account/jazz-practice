@@ -78,6 +78,18 @@ export interface Exercise {
   usesActiveStandard: boolean; // If true or MAINTENANCE, bound to active standard
   lastPracticedAt: string | null;
   skippedCount: number;
+  // Rotation tenure tracking
+  rotationChangedAt: string;         // ISO timestamp when inRotation last flipped
+  accumulatedInRotationMs: number;   // Historical ms spent in rotation prior to rotationChangedAt
+  accumulatedOutRotationMs: number;  // Historical ms spent in vault prior to rotationChangedAt
+}
+
+export interface RotationTenureStats {
+  currentStreakDays: number;
+  currentStreakLabel: string;        // e.g. "6D", "<1D", "3W"
+  totalInRotationDays: number;
+  totalOutRotationDays: number;
+  activeRatioPercent: number;        // 0 - 100
 }
 
 /**

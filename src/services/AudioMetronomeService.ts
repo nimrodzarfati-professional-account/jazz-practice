@@ -3,15 +3,36 @@
  */
 import * as Haptics from 'expo-haptics';
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  try {
+    if (typeof window !== 'undefined') {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        if (!sharedAudioCtx) {
+          sharedAudioCtx = new AudioContextClass();
+        }
+        if (sharedAudioCtx.state === 'suspended') {
+          sharedAudioCtx.resume();
+        }
+        return sharedAudioCtx;
+      }
+    }
+  } catch {
+    // Non-blocking fallback
+  }
+  return null;
+}
+
 /**
  * Plays a warm studio chime tone when a practice block completes
  */
 export function playBlockCompleteChime(): void {
   try {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass();
+    const ctx = getAudioContext();
+    if (ctx) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -38,21 +59,41 @@ class AudioMetronomeService {
   private currentBpm: number = 120;
   private beatCounter: number = 0;
 
-  /**
-   * Starts a rhythm metronome with haptic ticks
-   */
+  private playClickTone(isDownbeat: boolean): void {
+    try {
+      const ctx = getAudioContext();
+      if (ctx) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(isDownbeat ? 1100 : 800, ctx.currentTime);
+        gain.gain.setValueAtTime(isDownbeat ? 0.28 : 0.16, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.045);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.05);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
+
   public startMetronome(bpm: number, onBeat?: (beatNumber: number) => void): void {
     this.stopMetronome();
     this.currentBpm = Math.max(30, Math.min(320, bpm));
     this.isTicking = true;
     this.beatCounter = 0;
 
-    const intervalMs = (60 / this.currentBpm) * 1000;
-
-    this.metronomeTimer = setInterval(() => {
+    const tick = () => {
       this.beatCounter = (this.beatCounter % 4) + 1;
+      const isDownbeat = this.beatCounter === 1;
 
-      if (this.beatCounter === 1) {
+      this.playClickTone(isDownbeat);
+
+      if (isDownbeat) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       } else {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -61,7 +102,12 @@ class AudioMetronomeService {
       if (onBeat) {
         onBeat(this.beatCounter);
       }
-    }, intervalMs);
+    };
+
+    tick();
+
+    const intervalMs = (60 / this.currentBpm) * 1000;
+    this.metronomeTimer = setInterval(tick, intervalMs);
   }
 
   public stopMetronome(): void {

@@ -41,6 +41,12 @@ function getDb(): SyncDb {
             const list = raw ? JSON.parse(raw) : [];
             return { count: list.length } as unknown as T;
           }
+          if (sql.includes('WHERE id = ?')) {
+            const [id] = _params || [];
+            const raw = localStorage.getItem(EX_KEY);
+            const list: any[] = raw ? JSON.parse(raw) : [];
+            return (list.find((e: any) => e.id === id) || null) as unknown as T;
+          }
         }
         return null;
       },
@@ -91,7 +97,8 @@ function getDb(): SyncDb {
           const [
             id, title, description, context, category, inRotation,
             durationMinutes, intensity, basePriority, currentBpm,
-            isKeyBased, masteredKeys, usesActiveStandard
+            isKeyBased, masteredKeys, usesActiveStandard,
+            rotationChangedAt, accumulatedInRotationMs, accumulatedOutRotationMs
           ] = params;
           const raw = localStorage.getItem(EX_KEY);
           const list: any[] = raw ? JSON.parse(raw) : [];
@@ -99,9 +106,26 @@ function getDb(): SyncDb {
             id, title, description, context, category, inRotation,
             durationMinutes, intensity, basePriority, currentBpm,
             isKeyBased, masteredKeys, usesActiveStandard,
-            lastPracticedAt: null, skippedCount: 0
+            lastPracticedAt: null, skippedCount: 0,
+            rotationChangedAt: rotationChangedAt || new Date().toISOString(),
+            accumulatedInRotationMs: accumulatedInRotationMs || 0,
+            accumulatedOutRotationMs: accumulatedOutRotationMs || 0,
           });
           localStorage.setItem(EX_KEY, JSON.stringify(list));
+          return;
+        }
+        if (sql.includes('UPDATE exercises SET inRotation = ?, rotationChangedAt = ?')) {
+          const [inRot, rotChangedAt, accIn, accOut, id] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            item.inRotation = inRot;
+            item.rotationChangedAt = rotChangedAt;
+            item.accumulatedInRotationMs = accIn;
+            item.accumulatedOutRotationMs = accOut;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
           return;
         }
         if (sql.includes('UPDATE exercises SET inRotation = ? WHERE id = ?')) {
@@ -152,6 +176,23 @@ function getDb(): SyncDb {
           if (item) {
             item.currentBpm = bpm;
             item.masteredKeys = keys;
+            localStorage.setItem(EX_KEY, JSON.stringify(list));
+          }
+          return;
+        }
+        if (sql.includes('UPDATE exercises SET title = ?, description = ?')) {
+          const [
+            title, description, context, category, durationMinutes,
+            intensity, basePriority, currentBpm, isKeyBased, usesActiveStandard, id
+          ] = params;
+          const raw = localStorage.getItem(EX_KEY);
+          const list: any[] = raw ? JSON.parse(raw) : [];
+          const item = list.find((e) => e.id === id);
+          if (item) {
+            Object.assign(item, {
+              title, description, context, category, durationMinutes,
+              intensity, basePriority, currentBpm, isKeyBased, usesActiveStandard,
+            });
             localStorage.setItem(EX_KEY, JSON.stringify(list));
           }
           return;
@@ -219,9 +260,25 @@ export function initDatabase(): void {
       masteredKeys TEXT NOT NULL DEFAULT '[]',
       usesActiveStandard INTEGER NOT NULL DEFAULT 0,
       lastPracticedAt TEXT,
-      skippedCount INTEGER NOT NULL DEFAULT 0
+      skippedCount INTEGER NOT NULL DEFAULT 0,
+      rotationChangedAt TEXT,
+      accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0,
+      accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  const migrations = [
+    `ALTER TABLE exercises ADD COLUMN rotationChangedAt TEXT`,
+    `ALTER TABLE exercises ADD COLUMN accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE exercises ADD COLUMN accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0`,
+  ];
+  for (const sql of migrations) {
+    try {
+      db.execSync(sql);
+    } catch {
+      /* Column already exists */
+    }
+  }
 
   // Seed default Active Standard if empty
   const stdCount = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM active_standard');
@@ -251,6 +308,9 @@ export function initDatabase(): void {
         isKeyBased: 1,
         masteredKeys: JSON.stringify(['C', 'F', 'Bb', 'Eb']),
         usesActiveStandard: 1,
+        rotationChangedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
       {
         id: 'ex_2',
@@ -266,6 +326,9 @@ export function initDatabase(): void {
         isKeyBased: 1,
         masteredKeys: JSON.stringify(['F', 'Bb', 'Eb', 'Ab']),
         usesActiveStandard: 1,
+        rotationChangedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
       {
         id: 'ex_3',
@@ -281,6 +344,9 @@ export function initDatabase(): void {
         isKeyBased: 0,
         masteredKeys: JSON.stringify([]),
         usesActiveStandard: 0,
+        rotationChangedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
       {
         id: 'ex_4',
@@ -296,6 +362,9 @@ export function initDatabase(): void {
         isKeyBased: 1,
         masteredKeys: JSON.stringify(['C', 'G']),
         usesActiveStandard: 0,
+        rotationChangedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
       {
         id: 'ex_5',
@@ -311,6 +380,9 @@ export function initDatabase(): void {
         isKeyBased: 1,
         masteredKeys: JSON.stringify(['C', 'F', 'Bb']),
         usesActiveStandard: 0,
+        rotationChangedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
       {
         id: 'ex_6',
@@ -326,6 +398,9 @@ export function initDatabase(): void {
         isKeyBased: 0,
         masteredKeys: JSON.stringify([]),
         usesActiveStandard: 1,
+        rotationChangedAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+        accumulatedInRotationMs: 0,
+        accumulatedOutRotationMs: 0,
       },
     ];
 
@@ -334,8 +409,9 @@ export function initDatabase(): void {
         `INSERT INTO exercises (
           id, title, description, context, category, inRotation,
           durationMinutes, intensity, basePriority, currentBpm,
-          isKeyBased, masteredKeys, usesActiveStandard, skippedCount
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          isKeyBased, masteredKeys, usesActiveStandard, skippedCount,
+          rotationChangedAt, accumulatedInRotationMs, accumulatedOutRotationMs
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
         [
           ex.id,
           ex.title,
@@ -350,6 +426,9 @@ export function initDatabase(): void {
           ex.isKeyBased,
           ex.masteredKeys,
           ex.usesActiveStandard,
+          ex.rotationChangedAt,
+          ex.accumulatedInRotationMs,
+          ex.accumulatedOutRotationMs,
         ]
       );
     }
@@ -373,6 +452,9 @@ function mapRowToExercise(row: any): Exercise {
     usesActiveStandard: Boolean(row.usesActiveStandard),
     lastPracticedAt: row.lastPracticedAt,
     skippedCount: row.skippedCount || 0,
+    rotationChangedAt: row.rotationChangedAt || new Date().toISOString(),
+    accumulatedInRotationMs: Number(row.accumulatedInRotationMs) || 0,
+    accumulatedOutRotationMs: Number(row.accumulatedOutRotationMs) || 0,
   };
 }
 
@@ -447,7 +529,25 @@ export function getAllVaultExercises(): Exercise[] {
 export function toggleExerciseRotation(id: string, inRotation: boolean): void {
   initDatabase();
   const db = getDb();
-  db.runSync('UPDATE exercises SET inRotation = ? WHERE id = ?', [inRotation ? 1 : 0, id]);
+  const row = db.getFirstSync<any>(
+    'SELECT inRotation, rotationChangedAt, accumulatedInRotationMs, accumulatedOutRotationMs FROM exercises WHERE id = ?',
+    [id]
+  );
+  const currentInRot = row ? Boolean(row.inRotation) : !inRotation;
+  const changedAt = row?.rotationChangedAt || new Date().toISOString();
+  const elapsedMs = Math.max(0, Date.now() - new Date(changedAt).getTime());
+  let accIn = row ? Number(row.accumulatedInRotationMs) || 0 : 0;
+  let accOut = row ? Number(row.accumulatedOutRotationMs) || 0 : 0;
+  if (currentInRot) {
+    accIn += elapsedMs;
+  } else {
+    accOut += elapsedMs;
+  }
+  const nowIso = new Date().toISOString();
+  db.runSync(
+    'UPDATE exercises SET inRotation = ?, rotationChangedAt = ?, accumulatedInRotationMs = ?, accumulatedOutRotationMs = ? WHERE id = ?',
+    [inRotation ? 1 : 0, nowIso, accIn, accOut, id]
+  );
 }
 
 /**
@@ -519,12 +619,16 @@ export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
   initDatabase();
   const db = getDb();
   const id = `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const rotationChangedAt = ex.rotationChangedAt || new Date().toISOString();
+  const accumulatedInRotationMs = ex.accumulatedInRotationMs || 0;
+  const accumulatedOutRotationMs = ex.accumulatedOutRotationMs || 0;
   db.runSync(
     `INSERT INTO exercises (
       id, title, description, context, category, inRotation,
       durationMinutes, intensity, basePriority, currentBpm,
-      isKeyBased, masteredKeys, usesActiveStandard, skippedCount
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      isKeyBased, masteredKeys, usesActiveStandard, skippedCount,
+      rotationChangedAt, accumulatedInRotationMs, accumulatedOutRotationMs
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     [
       id,
       ex.title,
@@ -539,9 +643,18 @@ export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
       ex.isKeyBased ? 1 : 0,
       JSON.stringify(ex.masteredKeys || []),
       ex.usesActiveStandard ? 1 : 0,
+      rotationChangedAt,
+      accumulatedInRotationMs,
+      accumulatedOutRotationMs,
     ]
   );
-  return { ...ex, id };
+  return {
+    ...ex,
+    id,
+    rotationChangedAt,
+    accumulatedInRotationMs,
+    accumulatedOutRotationMs,
+  };
 }
 
 /**
@@ -552,3 +665,67 @@ export function deleteExercise(id: string): void {
   const db = getDb();
   db.runSync('DELETE FROM exercises WHERE id = ?', [id]);
 }
+
+/**
+ * Update an existing exercise's metadata in the Vault
+ */
+export function updateExerciseDetails(
+  id: string,
+  updates: Pick<
+    Exercise,
+    | 'title'
+    | 'description'
+    | 'context'
+    | 'category'
+    | 'durationMinutes'
+    | 'intensity'
+    | 'basePriority'
+    | 'currentBpm'
+    | 'isKeyBased'
+    | 'usesActiveStandard'
+  >
+): void {
+  initDatabase();
+  const db = getDb();
+  db.runSync(
+    `UPDATE exercises SET title = ?, description = ?, context = ?, category = ?, durationMinutes = ?, intensity = ?, basePriority = ?, currentBpm = ?, isKeyBased = ?, usesActiveStandard = ? WHERE id = ?`,
+    [
+      updates.title,
+      updates.description,
+      updates.context,
+      updates.category,
+      updates.durationMinutes,
+      updates.intensity,
+      updates.basePriority,
+      updates.currentBpm,
+      updates.isKeyBased ? 1 : 0,
+      updates.usesActiveStandard ? 1 : 0,
+      id,
+    ]
+  );
+}
+
+/**
+ * Bulk ingest multiple exercises at once into the Vault
+ */
+export function bulkAddExercises(
+  items: (Omit<
+    Exercise,
+    'id' | 'rotationChangedAt' | 'accumulatedInRotationMs' | 'accumulatedOutRotationMs'
+  > &
+    Partial<
+      Pick<Exercise, 'rotationChangedAt' | 'accumulatedInRotationMs' | 'accumulatedOutRotationMs'>
+    >)[]
+): Exercise[] {
+  initDatabase();
+  const nowIso = new Date().toISOString();
+  return items.map((item) =>
+    addExercise({
+      ...item,
+      rotationChangedAt: item.rotationChangedAt || nowIso,
+      accumulatedInRotationMs: item.accumulatedInRotationMs || 0,
+      accumulatedOutRotationMs: item.accumulatedOutRotationMs || 0,
+    })
+  );
+}
+
