@@ -139,6 +139,20 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
             },
           ]}
           onPress={handleTrackPress}
+          accessibilityRole="adjustable"
+          accessibilityLabel={label}
+          accessibilityValue={{ min, max, now: value }}
+          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+          onAccessibilityAction={(event) => {
+            switch (event.nativeEvent.actionName) {
+              case 'increment':
+                handleStepChange(step);
+                break;
+              case 'decrement':
+                handleStepChange(-step);
+                break;
+            }
+          }}
         >
           <View
             style={[
@@ -188,6 +202,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
             styles.stepBtn,
             { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${label}`}
         >
           <Text
             style={[
@@ -204,6 +220,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
             styles.stepBtn,
             { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${label}`}
         >
           <Text
             style={[
