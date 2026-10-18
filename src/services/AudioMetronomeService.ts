@@ -58,24 +58,74 @@ class AudioMetronomeService {
   private metronomeTimer: ReturnType<typeof setInterval> | null = null;
   private currentBpm: number = 120;
   private beatCounter: number = 0;
+  private noiseBuffer: AudioBuffer | null = null;
 
-  private playClickTone(isDownbeat: boolean): void {
+  private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (this.noiseBuffer) return this.noiseBuffer;
+    // 25ms buffer of crisp white noise for the mechanical escapement snap
+    const bufferSize = Math.floor(ctx.sampleRate * 0.025);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      // Exponentially decaying noise burst right in the buffer
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.004));
+    }
+    this.noiseBuffer = buffer;
+    return buffer;
+  }
+
+  private playClickTone(isDownbeat: boolean, isOddBeat: boolean): void {
     try {
       const ctx = getAudioContext();
-      if (ctx) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+      if (!ctx) return;
 
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(isDownbeat ? 1100 : 800, ctx.currentTime);
-        gain.gain.setValueAtTime(isDownbeat ? 0.28 : 0.16, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.045);
+      const now = ctx.currentTime;
 
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.05);
-      }
+      // --- LAYER 1: Mechanical Metal Escapement Snap (Filtered Noise Burst) ---
+      const noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = this.getNoiseBuffer(ctx);
+
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      // Slight pitch difference between "tick" (odd) and "tock" (even)
+      noiseFilter.frequency.setValueAtTime(isOddBeat ? 2600 : 2300, now);
+      noiseFilter.Q.setValueAtTime(3.5, now);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(isDownbeat ? 0.55 : 0.38, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noiseSource.start(now);
+
+      // --- LAYER 2: Hollow Wooden Pyramid Body Knock (Rapid Pitch-Drop Impulse) ---
+      const bodyOsc = ctx.createOscillator();
+      const bodyFilter = ctx.createBiquadFilter();
+      const bodyGain = ctx.createGain();
+
+      bodyOsc.type = 'triangle';
+      // Wood resonance starts with a sharp click and drops into the hollow wood fundamental
+      const startFreq = isDownbeat ? 1650 : isOddBeat ? 1350 : 1220;
+      const woodResonanceFreq = isDownbeat ? 460 : isOddBeat ? 390 : 365;
+
+      bodyOsc.frequency.setValueAtTime(startFreq, now);
+      bodyOsc.frequency.exponentialRampToValueAtTime(woodResonanceFreq, now + 0.009);
+
+      // Warm low-pass filter to shave off digital harshness
+      bodyFilter.type = 'lowpass';
+      bodyFilter.frequency.setValueAtTime(2400, now);
+
+      bodyGain.gain.setValueAtTime(isDownbeat ? 0.45 : 0.32, now);
+      bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
+
+      bodyOsc.connect(bodyFilter);
+      bodyFilter.connect(bodyGain);
+      bodyGain.connect(ctx.destination);
+
+      bodyOsc.start(now);
+      bodyOsc.stop(now + 0.042);
     } catch {
       // Non-blocking fallback
     }
@@ -90,8 +140,9 @@ class AudioMetronomeService {
     const tick = () => {
       this.beatCounter = (this.beatCounter % 4) + 1;
       const isDownbeat = this.beatCounter === 1;
+      const isOddBeat = this.beatCounter % 2 === 1;
 
-      this.playClickTone(isDownbeat);
+      this.playClickTone(isDownbeat, isOddBeat);
 
       if (isDownbeat) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
