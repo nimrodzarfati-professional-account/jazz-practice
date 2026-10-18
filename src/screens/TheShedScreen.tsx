@@ -215,6 +215,9 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             return (
               <Pressable
                 key={`${item.id}-${idx}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Select practice block ${idx + 1}, ${item.title}`}
+                accessibilityState={{ selected: isCurrent }}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setActiveIndex(idx);
@@ -321,6 +324,8 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             <View style={styles.bpmRow}>
               <Pressable
                 onPress={() => handleBpmStep(-5)}
+                accessibilityRole="button"
+                accessibilityLabel="Decrease BPM by 5"
                 style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
               >
                 <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>-5</Text>
@@ -332,6 +337,8 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 
               <Pressable
                 onPress={() => handleBpmStep(5)}
+                accessibilityRole="button"
+                accessibilityLabel="Increase BPM by 5"
                 style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
               >
                 <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>+5</Text>

@@ -183,6 +183,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
 
       <View style={styles.stepperRow}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${label}`}
           onPress={() => handleStepChange(-step)}
           style={[
             styles.stepBtn,
@@ -199,6 +201,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
           </Text>
         </Pressable>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${label}`}
           onPress={() => handleStepChange(step)}
           style={[
             styles.stepBtn,

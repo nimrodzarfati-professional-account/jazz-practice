@@ -49,6 +49,9 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
           return (
             <Pressable
               key={k}
+              accessibilityRole="button"
+              accessibilityLabel={`Key of ${k}${isStamped ? ', stamped' : ''}`}
+              accessibilityState={{ checked: isStamped }}
               onPress={() => handlePress(k)}
               style={[
                 styles.cell,
