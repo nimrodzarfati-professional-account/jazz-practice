@@ -3,6 +3,8 @@
  */
 import * as Haptics from 'expo-haptics';
 
+export type MetronomeFeelMode = 'BACKBEAT_2_4' | 'ALL_FOUR_2_4_ACCENT';
+
 let sharedAudioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
@@ -59,6 +61,15 @@ class AudioMetronomeService {
   private currentBpm: number = 120;
   private beatCounter: number = 0;
   private noiseBuffer: AudioBuffer | null = null;
+  private feelMode: MetronomeFeelMode = 'BACKBEAT_2_4'; // Enforced jazz 2 & 4 by default
+
+  public setFeelMode(mode: MetronomeFeelMode): void {
+    this.feelMode = mode;
+  }
+
+  public getFeelMode(): MetronomeFeelMode {
+    return this.feelMode;
+  }
 
   private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
     if (this.noiseBuffer) return this.noiseBuffer;
@@ -74,12 +85,24 @@ class AudioMetronomeService {
     return buffer;
   }
 
-  private playClickTone(isDownbeat: boolean, isOddBeat: boolean): void {
+  private playClickTone(beatNumber: number): void {
     try {
       const ctx = getAudioContext();
       if (!ctx) return;
 
       const now = ctx.currentTime;
+
+      // In jazz, beats 2 & 4 carry the primary accent (the hi-hat chick / backbeat)
+      const isBackbeat = beatNumber === 2 || beatNumber === 4;
+
+      // When 2 & 4 Backbeat Mode is enforced, completely mute audio on beats 1 & 3
+      if (this.feelMode === 'BACKBEAT_2_4' && !isBackbeat) {
+        return;
+      }
+
+      // Route `isBackbeat` into the accent parameter for all 4 physical voices
+      const isAccent = isBackbeat;
+      const isOddBeat = beatNumber % 2 === 1;
 
       // --- LAYER 1: Mechanical Metal Escapement Snap (Filtered Noise Burst) ---
       const noiseSource = ctx.createBufferSource();
@@ -92,7 +115,7 @@ class AudioMetronomeService {
       noiseFilter.Q.setValueAtTime(3.5, now);
 
       const noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(isDownbeat ? 0.55 : 0.38, now);
+      noiseGain.gain.setValueAtTime(isAccent ? 0.55 : 0.38, now);
       noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
 
       noiseSource.connect(noiseFilter);
@@ -107,8 +130,8 @@ class AudioMetronomeService {
 
       bodyOsc.type = 'triangle';
       // Wood resonance starts with a sharp click and drops into the hollow wood fundamental
-      const startFreq = isDownbeat ? 1650 : isOddBeat ? 1350 : 1220;
-      const woodResonanceFreq = isDownbeat ? 460 : isOddBeat ? 390 : 365;
+      const startFreq = isAccent ? 1650 : isOddBeat ? 1350 : 1220;
+      const woodResonanceFreq = isAccent ? 460 : isOddBeat ? 390 : 365;
 
       bodyOsc.frequency.setValueAtTime(startFreq, now);
       bodyOsc.frequency.exponentialRampToValueAtTime(woodResonanceFreq, now + 0.009);
@@ -117,7 +140,7 @@ class AudioMetronomeService {
       bodyFilter.type = 'lowpass';
       bodyFilter.frequency.setValueAtTime(2400, now);
 
-      bodyGain.gain.setValueAtTime(isDownbeat ? 0.45 : 0.32, now);
+      bodyGain.gain.setValueAtTime(isAccent ? 0.45 : 0.32, now);
       bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
 
       bodyOsc.connect(bodyFilter);
@@ -139,14 +162,13 @@ class AudioMetronomeService {
 
     const tick = () => {
       this.beatCounter = (this.beatCounter % 4) + 1;
-      const isDownbeat = this.beatCounter === 1;
-      const isOddBeat = this.beatCounter % 2 === 1;
+      const isBackbeat = this.beatCounter === 2 || this.beatCounter === 4;
 
-      this.playClickTone(isDownbeat, isOddBeat);
+      this.playClickTone(this.beatCounter);
 
-      if (isDownbeat) {
+      if (isBackbeat) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      } else {
+      } else if (this.feelMode === 'ALL_FOUR_2_4_ACCENT') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
 

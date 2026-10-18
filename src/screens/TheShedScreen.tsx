@@ -12,7 +12,11 @@ import {
   graduateExerciseToMaintenance,
   updateExerciseProgress,
 } from '../db/repository';
-import { playBlockCompleteChime, audioMetronomeService } from '../services/AudioMetronomeService';
+import {
+  playBlockCompleteChime,
+  audioMetronomeService,
+  MetronomeFeelMode,
+} from '../services/AudioMetronomeService';
 
 interface TheShedScreenProps {
   queue: ScoredExercise[];
@@ -40,6 +44,9 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [isMetronomeOn, setIsMetronomeOn] = useState(false);
   const [currentBeat, setCurrentBeat] = useState(0);
+  const [feelMode, setFeelMode] = useState<MetronomeFeelMode>(
+    audioMetronomeService.getFeelMode()
+  );
 
   // Whenever the active exercise changes, reset the timer to THAT exercise's duration
   useEffect(() => {
@@ -333,41 +340,75 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
               />
             </View>
 
-            {/* Visual 4-Beat Pulse Indicators */}
-            <View style={styles.beatPulseRow}>
-              {[1, 2, 3, 4].map((beat) => {
-                const isCurrent = isMetronomeOn && currentBeat === beat;
-                const isDownbeat = beat === 1;
-                return (
-                  <View
-                    key={`beat-${beat}`}
-                    style={[
-                      styles.beatDot,
-                      {
-                        borderColor: colors.inkBlack,
-                        backgroundColor: isCurrent
-                          ? isDownbeat
-                            ? colors.primary
-                            : colors.tertiary
-                          : colors.cardSurface,
-                        transform: [{ scale: isCurrent ? 1.2 : 1 }],
-                      },
-                    ]}
-                  >
-                    <Text
+            {/* Enforced Jazz 2 & 4 Pocket Toggle + Visual 4-Beat Pulse */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+              <Pressable
+                accessibilityLabel="Toggle 2 and 4 backbeat mode"
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  const nextMode: MetronomeFeelMode =
+                    feelMode === 'BACKBEAT_2_4' ? 'ALL_FOUR_2_4_ACCENT' : 'BACKBEAT_2_4';
+                  audioMetronomeService.setFeelMode(nextMode);
+                  setFeelMode(nextMode);
+                }}
+                style={{
+                  borderWidth: 1.5,
+                  borderColor: colors.inkBlack,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  backgroundColor: feelMode === 'BACKBEAT_2_4' ? colors.secondary : colors.cardSurface,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 10,
+                    letterSpacing: 0.8,
+                    color: feelMode === 'BACKBEAT_2_4' ? colors.cardSurface : colors.inkBlack,
+                  }}
+                >
+                  {feelMode === 'BACKBEAT_2_4' ? '✓ 2 & 4 ONLY (JAZZ LOCK)' : '1-2-3-4 (ACCENT 2 & 4)'}
+                </Text>
+              </Pressable>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[1, 2, 3, 4].map((beat) => {
+                  const isCurrent = isMetronomeOn && currentBeat === beat;
+                  const isBackbeat = beat === 2 || beat === 4;
+                  const isMutedBeat = feelMode === 'BACKBEAT_2_4' && !isBackbeat;
+                  return (
+                    <View
+                      key={`beat-${beat}`}
                       style={[
-                        styles.beatNumber,
+                        styles.beatDot,
                         {
-                          fontFamily: typography.fontMonoBold,
-                          color: isCurrent ? colors.cardSurface : colors.inkMuted,
+                          borderColor: colors.inkBlack,
+                          opacity: isMutedBeat && !isCurrent ? 0.45 : 1,
+                          backgroundColor: isCurrent
+                            ? isBackbeat
+                              ? colors.primary
+                              : colors.recessedSurface
+                            : colors.cardSurface,
+                          transform: [{ scale: isCurrent && isBackbeat ? 1.2 : 1 }],
                         },
                       ]}
                     >
-                      {beat}
-                    </Text>
-                  </View>
-                );
-              })}
+                      <Text
+                        style={[
+                          styles.beatNumber,
+                          {
+                            fontFamily: typography.fontMonoBold,
+                            color: isCurrent && isBackbeat ? colors.cardSurface : colors.inkMuted,
+                          },
+                        ]}
+                      >
+                        {beat}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
           </View>
         </View>
