@@ -73,6 +73,8 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
 
       <Pressable
         onPress={handleRotatePress}
+        accessibilityRole="button"
+        accessibilityLabel="Switch Tune"
         style={[
           styles.rotateBtn,
           {
