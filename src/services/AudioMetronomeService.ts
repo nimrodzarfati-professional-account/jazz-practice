@@ -2,20 +2,29 @@
  * Audio, Metronome & Studio Chime Service for Shed Engine
  */
 import * as Haptics from 'expo-haptics';
+import { AudioContext as NativeAudioContext } from 'react-native-audio-api';
 
 export type MetronomeFeelMode = 'BACKBEAT_2_4' | 'ALL_FOUR_2_4_ACCENT';
+export type MetronomeVoice = 'PENDULUM' | 'HI_HAT' | 'RIMSHOT' | 'WOODBLOCK';
+
+export const METRONOME_VOICES: { id: MetronomeVoice; label: string }[] = [
+  { id: 'PENDULUM', label: 'PENDULUM' },
+  { id: 'HI_HAT', label: '2 & 4 HAT' },
+  { id: 'RIMSHOT', label: 'CROSS-STICK' },
+  { id: 'WOODBLOCK', label: 'WOODBLOCK' },
+];
 
 let sharedAudioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
   try {
     if (typeof window !== 'undefined') {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext || NativeAudioContext;
       if (AudioContextClass) {
         if (!sharedAudioCtx) {
-          sharedAudioCtx = new AudioContextClass();
+          sharedAudioCtx = new AudioContextClass() as any;
         }
-        if (sharedAudioCtx.state === 'suspended') {
+        if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
           sharedAudioCtx.resume();
         }
         return sharedAudioCtx;
@@ -60,8 +69,9 @@ class AudioMetronomeService {
   private metronomeTimer: ReturnType<typeof setInterval> | null = null;
   private currentBpm: number = 120;
   private beatCounter: number = 0;
-  private noiseBuffer: AudioBuffer | null = null;
   private feelMode: MetronomeFeelMode = 'BACKBEAT_2_4'; // Enforced jazz 2 & 4 by default
+  private currentVoice: MetronomeVoice = 'PENDULUM';
+  private noiseBuffer: AudioBuffer | null = null;
 
   public setFeelMode(mode: MetronomeFeelMode): void {
     this.feelMode = mode;
@@ -71,15 +81,21 @@ class AudioMetronomeService {
     return this.feelMode;
   }
 
+  public setVoice(voice: MetronomeVoice): void {
+    this.currentVoice = voice;
+  }
+
+  public getVoice(): MetronomeVoice {
+    return this.currentVoice;
+  }
+
   private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
     if (this.noiseBuffer) return this.noiseBuffer;
-    // 25ms buffer of crisp white noise for the mechanical escapement snap
-    const bufferSize = Math.floor(ctx.sampleRate * 0.025);
+    const bufferSize = Math.floor(ctx.sampleRate * 0.08); // 80ms buffer for hi-hat chick & snaps
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
-      // Exponentially decaying noise burst right in the buffer
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.004));
+      data[i] = Math.random() * 2 - 1;
     }
     this.noiseBuffer = buffer;
     return buffer;
@@ -91,62 +107,105 @@ class AudioMetronomeService {
       if (!ctx) return;
 
       const now = ctx.currentTime;
-
-      // In jazz, beats 2 & 4 carry the primary accent (the hi-hat chick / backbeat)
+      const isDownbeat = beatNumber === 1;
       const isBackbeat = beatNumber === 2 || beatNumber === 4;
+      const isOddBeat = beatNumber % 2 === 1;
 
       // When 2 & 4 Backbeat Mode is enforced, completely mute audio on beats 1 & 3
       if (this.feelMode === 'BACKBEAT_2_4' && !isBackbeat) {
         return;
       }
 
-      // Route `isBackbeat` into the accent parameter for all 4 physical voices
-      const isAccent = isBackbeat;
-      const isOddBeat = beatNumber % 2 === 1;
+      if (this.currentVoice === 'HI_HAT') {
+        // Jazz 2 & 4 Foot Hi-Hat Chick (Ghost whisper on 1 & 3, crisp clamp on 2 & 4)
+        const noise = ctx.createBufferSource();
+        noise.buffer = this.getNoiseBuffer(ctx);
 
-      // --- LAYER 1: Mechanical Metal Escapement Snap (Filtered Noise Burst) ---
+        const hpFilter = ctx.createBiquadFilter();
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.setValueAtTime(5500, now);
+
+        const bpFilter = ctx.createBiquadFilter();
+        bpFilter.type = 'bandpass';
+        bpFilter.frequency.setValueAtTime(isBackbeat ? 8200 : 6500, now);
+        bpFilter.Q.setValueAtTime(1.8, now);
+
+        const gain = ctx.createGain();
+        // Emphasize 2 & 4 strongly; barely audible air feather on 1 & 3
+        gain.gain.setValueAtTime(isBackbeat ? 0.65 : 0.06, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + (isBackbeat ? 0.045 : 0.015));
+
+        noise.connect(hpFilter);
+        hpFilter.connect(bpFilter);
+        bpFilter.connect(gain);
+        gain.connect(ctx.destination);
+        noise.start(now);
+        noise.stop(now + 0.05);
+        return;
+      }
+
+      if (this.currentVoice === 'RIMSHOT') {
+        // Maple Cross-Stick on Snare Rim (Inharmonic woody modes + crisp transient)
+        const freqs = isDownbeat ? [480, 1020, 2150] : [420, 890, 1850];
+        freqs.forEach((f, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = idx === 0 ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(f, now);
+          gain.gain.setValueAtTime((isDownbeat ? 0.25 : 0.18) / (idx + 1), now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.028);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.03);
+        });
+        return;
+      }
+
+      if (this.currentVoice === 'WOODBLOCK') {
+        // Hollow Studio Ash Woodblock
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        const baseFreq = isDownbeat ? 860 : 640;
+        osc.frequency.setValueAtTime(baseFreq * 1.35, now);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.006);
+
+        gain.gain.setValueAtTime(isDownbeat ? 0.45 : 0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.06);
+        return;
+      }
+
+      // DEFAULT: 'PENDULUM' (Wittner Mechanical Escapement + Mahogany Pyramid)
       const noiseSource = ctx.createBufferSource();
       noiseSource.buffer = this.getNoiseBuffer(ctx);
-
       const noiseFilter = ctx.createBiquadFilter();
       noiseFilter.type = 'bandpass';
-      // Slight pitch difference between "tick" (odd) and "tock" (even)
       noiseFilter.frequency.setValueAtTime(isOddBeat ? 2600 : 2300, now);
       noiseFilter.Q.setValueAtTime(3.5, now);
-
       const noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(isAccent ? 0.55 : 0.38, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
-
+      noiseGain.gain.setValueAtTime(isDownbeat ? 0.5 : 0.35, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
       noiseSource.connect(noiseFilter);
       noiseFilter.connect(noiseGain);
       noiseGain.connect(ctx.destination);
       noiseSource.start(now);
+      noiseSource.stop(now + 0.02);
 
-      // --- LAYER 2: Hollow Wooden Pyramid Body Knock (Rapid Pitch-Drop Impulse) ---
       const bodyOsc = ctx.createOscillator();
-      const bodyFilter = ctx.createBiquadFilter();
       const bodyGain = ctx.createGain();
-
       bodyOsc.type = 'triangle';
-      // Wood resonance starts with a sharp click and drops into the hollow wood fundamental
-      const startFreq = isAccent ? 1650 : isOddBeat ? 1350 : 1220;
-      const woodResonanceFreq = isAccent ? 460 : isOddBeat ? 390 : 365;
-
-      bodyOsc.frequency.setValueAtTime(startFreq, now);
-      bodyOsc.frequency.exponentialRampToValueAtTime(woodResonanceFreq, now + 0.009);
-
-      // Warm low-pass filter to shave off digital harshness
-      bodyFilter.type = 'lowpass';
-      bodyFilter.frequency.setValueAtTime(2400, now);
-
-      bodyGain.gain.setValueAtTime(isAccent ? 0.45 : 0.32, now);
+      bodyOsc.frequency.setValueAtTime(isDownbeat ? 1650 : isOddBeat ? 1350 : 1220, now);
+      bodyOsc.frequency.exponentialRampToValueAtTime(isDownbeat ? 460 : isOddBeat ? 390 : 365, now + 0.009);
+      bodyGain.gain.setValueAtTime(isDownbeat ? 0.45 : 0.32, now);
       bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
-
-      bodyOsc.connect(bodyFilter);
-      bodyFilter.connect(bodyGain);
+      bodyOsc.connect(bodyGain);
       bodyGain.connect(ctx.destination);
-
       bodyOsc.start(now);
       bodyOsc.stop(now + 0.042);
     } catch {
@@ -162,13 +221,16 @@ class AudioMetronomeService {
 
     const tick = () => {
       this.beatCounter = (this.beatCounter % 4) + 1;
-      const isBackbeat = this.beatCounter === 2 || this.beatCounter === 4;
-
       this.playClickTone(this.beatCounter);
 
-      if (isBackbeat) {
+      const isAccent =
+        this.currentVoice === 'HI_HAT'
+          ? this.beatCounter === 2 || this.beatCounter === 4
+          : this.beatCounter === 1;
+
+      if (isAccent) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      } else if (this.feelMode === 'ALL_FOUR_2_4_ACCENT') {
+      } else {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
 

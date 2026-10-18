@@ -15,6 +15,8 @@ import {
 import {
   playBlockCompleteChime,
   audioMetronomeService,
+  METRONOME_VOICES,
+  MetronomeVoice,
   MetronomeFeelMode,
 } from '../services/AudioMetronomeService';
 
@@ -46,6 +48,9 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   const [currentBeat, setCurrentBeat] = useState(0);
   const [feelMode, setFeelMode] = useState<MetronomeFeelMode>(
     audioMetronomeService.getFeelMode()
+  );
+  const [metronomeVoice, setMetronomeVoice] = useState<MetronomeVoice>(
+    audioMetronomeService.getVoice()
   );
 
   // Whenever the active exercise changes, reset the timer to THAT exercise's duration
@@ -338,6 +343,44 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                 size="sm"
                 onPress={toggleMetronome}
               />
+            </View>
+
+            {/* Metronome Sound Voice Selector */}
+            <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
+              {METRONOME_VOICES.map((v) => {
+                const isSelected = metronomeVoice === v.id;
+                return (
+                  <Pressable
+                    key={v.id}
+                    accessibilityLabel={`Metronome sound ${v.label}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      audioMetronomeService.setVoice(v.id);
+                      setMetronomeVoice(v.id);
+                    }}
+                    style={{
+                      flex: 1,
+                      borderWidth: 1,
+                      borderColor: colors.inkBlack,
+                      paddingVertical: 4,
+                      alignItems: 'center',
+                      backgroundColor: isSelected ? colors.tertiary : colors.cardSurface,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: typography.fontStamp,
+                        fontSize: 9,
+                        letterSpacing: 0.6,
+                        color: isSelected ? colors.cardSurface : colors.inkBlack,
+                      }}
+                    >
+                      {v.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
             {/* Enforced Jazz 2 & 4 Pocket Toggle + Visual 4-Beat Pulse */}
