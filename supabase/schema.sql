@@ -1,26 +1,43 @@
 -- ==============================================================================
--- Shed Engine — Supabase Cloud Backup Schema & Security Policies
+-- Shed Engine V2 — Supabase Cloud Realtime Database Schema & Security Policies
 -- Paste this script into your Supabase Dashboard -> SQL Editor and tap RUN.
 -- ==============================================================================
 
--- 1. Exercises Table (Sync target for local SQLite exercises)
+-- 1. Active Standard Table (1-2 Week Cycle)
+CREATE TABLE IF NOT EXISTS public.active_standard (
+  id TEXT PRIMARY KEY NOT NULL DEFAULT 'std_1',
+  title TEXT NOT NULL,
+  default_key TEXT NOT NULL DEFAULT 'Bb',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  rotation_cycle_days INTEGER NOT NULL DEFAULT 14,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 2. Exercises Table (In-Rotation & Repertoire Vault)
 CREATE TABLE IF NOT EXISTS public.exercises (
   id TEXT PRIMARY KEY NOT NULL,
   title TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  context TEXT NOT NULL CHECK(context IN ('soloing', 'comping')),
-  category TEXT NOT NULL CHECK(category IN ('maintenance', 'transcribing', 'new_concept')),
+  context TEXT NOT NULL CHECK(context IN ('SOLOING', 'COMPING')),
+  category TEXT NOT NULL CHECK(category IN ('MAINTENANCE', 'TRANSCRIBING', 'NEW_CONCEPT')),
+  in_rotation BOOLEAN NOT NULL DEFAULT true,
+  duration_minutes INTEGER NOT NULL DEFAULT 15,
+  intensity INTEGER NOT NULL DEFAULT 3 CHECK(intensity BETWEEN 1 AND 5),
   base_priority INTEGER NOT NULL DEFAULT 5,
-  default_duration_minutes INTEGER NOT NULL DEFAULT 15,
-  target_bpm INTEGER,
-  key_stamps_json TEXT NOT NULL DEFAULT '[]',
+  current_bpm INTEGER NOT NULL DEFAULT 120,
+  is_key_based BOOLEAN NOT NULL DEFAULT false,
+  mastered_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+  uses_active_standard BOOLEAN NOT NULL DEFAULT false,
   last_practiced_at TIMESTAMPTZ,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  rotation_changed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  accumulated_in_rotation_ms BIGINT NOT NULL DEFAULT 0,
+  accumulated_out_rotation_ms BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  is_archived BOOLEAN NOT NULL DEFAULT false
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Practice Sessions Table
+-- 3. Practice Sessions Table (Historical Logs)
 CREATE TABLE IF NOT EXISTS public.practice_sessions (
   id TEXT PRIMARY KEY NOT NULL,
   available_minutes INTEGER NOT NULL,
@@ -34,35 +51,51 @@ CREATE TABLE IF NOT EXISTS public.practice_sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 3. Session Logs Table
-CREATE TABLE IF NOT EXISTS public.session_logs (
-  id TEXT PRIMARY KEY NOT NULL,
-  session_id TEXT NOT NULL,
-  exercise_id TEXT NOT NULL REFERENCES public.exercises(id) ON DELETE CASCADE,
-  duration_minutes INTEGER NOT NULL,
-  keys_worked_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-  bpm_achieved INTEGER,
-  notes TEXT NOT NULL DEFAULT '',
-  practiced_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
-);
+-- Indices for rapid querying
+CREATE INDEX IF NOT EXISTS idx_exercises_rotation ON public.exercises(in_rotation);
+CREATE INDEX IF NOT EXISTS idx_exercises_category ON public.exercises(category);
+CREATE INDEX IF NOT EXISTS idx_exercises_context ON public.exercises(context);
 
--- Indices for performance
-CREATE INDEX IF NOT EXISTS idx_cloud_exercises_category ON public.exercises(category);
-CREATE INDEX IF NOT EXISTS idx_cloud_exercises_context ON public.exercises(context);
-CREATE INDEX IF NOT EXISTS idx_cloud_session_logs_practiced ON public.session_logs(practiced_at);
-
--- Row-Level Security (RLS) setup
+-- Enable Row-Level Security (RLS)
+ALTER TABLE public.active_standard ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exercises ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.practice_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.session_logs ENABLE ROW LEVEL SECURITY;
 
--- Allow read & write access for authenticated users or anonymous app clients with anon key
-CREATE POLICY "Allow public read-write for anon mobile client" 
-  ON public.exercises FOR ALL USING (true) WITH CHECK (true);
+-- Allow public read & write access for mobile client & web browser using Anon key
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'active_standard' AND policyname = 'Allow public read-write for active_standard'
+  ) THEN
+    CREATE POLICY "Allow public read-write for active_standard"
+      ON public.active_standard FOR ALL USING (true) WITH CHECK (true);
+  END IF;
 
-CREATE POLICY "Allow public read-write for sessions" 
-  ON public.practice_sessions FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'exercises' AND policyname = 'Allow public read-write for exercises'
+  ) THEN
+    CREATE POLICY "Allow public read-write for exercises"
+      ON public.exercises FOR ALL USING (true) WITH CHECK (true);
+  END IF;
 
-CREATE POLICY "Allow public read-write for logs" 
-  ON public.session_logs FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'practice_sessions' AND policyname = 'Allow public read-write for practice_sessions'
+  ) THEN
+    CREATE POLICY "Allow public read-write for practice_sessions"
+      ON public.practice_sessions FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- Enable Realtime for Exercises and Active Standard tables
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.exercises;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.active_standard;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+END $$;

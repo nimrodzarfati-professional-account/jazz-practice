@@ -26,6 +26,13 @@ import {
   importVaultData,
 } from '../db/repository';
 import {
+  getCloudConfig,
+  saveCloudConfig,
+  clearCloudConfig,
+  isCloudConfigured,
+  pullAllFromCloud,
+} from '../services/CloudSyncService';
+import {
   getRotationTenureStats,
   parseBulkExercisesInput,
   BulkDefaults,
@@ -64,6 +71,10 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const [syncExportJson, setSyncExportJson] = useState('');
   const [syncImportJson, setSyncImportJson] = useState('');
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
+  const [cloudUrl, setCloudUrl] = useState('');
+  const [cloudAnonKey, setCloudAnonKey] = useState('');
+  const [isCloudActive, setIsCloudActive] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
 
   // Single Drill Form State
   const [formTitle, setFormTitle] = useState('');
@@ -220,6 +231,64 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     const json = exportVaultData();
     setSyncExportJson(json);
     setSyncStatusMsg(null);
+    const cfg = getCloudConfig();
+    setCloudUrl(cfg.url || '');
+    setCloudAnonKey(cfg.anonKey || '');
+    setIsCloudActive(isCloudConfigured());
+  };
+
+  const handleConnectAndSync = async () => {
+    if (!cloudUrl.trim() || !cloudAnonKey.trim()) {
+      setSyncStatusMsg({ text: 'Please enter both Supabase URL and Anon Key.', isError: true });
+      return;
+    }
+    setIsSyncingCloud(true);
+    setSyncStatusMsg({ text: 'Connecting to Supabase cloud database...', isError: false });
+    saveCloudConfig(cloudUrl, cloudAnonKey);
+    const res = await pullAllFromCloud();
+    setIsSyncingCloud(false);
+    if (res.success) {
+      setIsCloudActive(true);
+      loadData();
+      onRefreshQueue();
+      setSyncExportJson(exportVaultData());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSyncStatusMsg({
+        text: `✓ Connected! Realtime sync active with Supabase (${res.count} drills).`,
+        isError: false,
+      });
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setSyncStatusMsg({ text: `Connection failed: ${res.error}`, isError: true });
+    }
+  };
+
+  const handlePullFromCloud = async () => {
+    setIsSyncingCloud(true);
+    setSyncStatusMsg({ text: 'Pulling latest data from Supabase...', isError: false });
+    const res = await pullAllFromCloud();
+    setIsSyncingCloud(false);
+    if (res.success) {
+      loadData();
+      onRefreshQueue();
+      setSyncExportJson(exportVaultData());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSyncStatusMsg({
+        text: `✓ Successfully synced ${res.count} drills from cloud source of truth!`,
+        isError: false,
+      });
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setSyncStatusMsg({ text: `Pull failed: ${res.error}`, isError: true });
+    }
+  };
+
+  const handleDisconnectCloud = () => {
+    clearCloudConfig();
+    setIsCloudActive(false);
+    setCloudUrl('');
+    setCloudAnonKey('');
+    setSyncStatusMsg({ text: 'Disconnected from cloud. Switched to offline local cache.', isError: false });
   };
 
   const handleCopyExport = async () => {
@@ -939,66 +1008,76 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
             {/* SYNC / BACKUP FORM */}
             {modalMode === 'SYNC' && !editingExerciseId && (
-              <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator>
-                <Text style={[styles.bulkHelpText, { fontFamily: typography.fontMono, color: colors.inkBlack, marginBottom: 4 }]}>
-                  TRANSFER REPERTOIRE (MOBILE ↔ COMPUTER)
-                </Text>
-                <Text style={[styles.bulkHelpText, { fontFamily: typography.fontMono, color: colors.inkMuted, marginBottom: 12, fontSize: 11 }]}>
-                  Your drills are saved locally on this device. To transfer between devices:
-                  {'\n'}1. Tap EXPORT on your mobile phone to copy your entire repertoire.
-                  {'\n'}2. Paste it into IMPORT on your computer and tap RESTORE.
-                </Text>
+              <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator>
+                {/* CLOUD REALTIME SYNC STATUS BANNER */}
+                <View
+                  style={{
+                    backgroundColor: isCloudActive ? '#1b4332' : colors.recessedSurface,
+                    borderWidth: 2,
+                    borderColor: colors.inkBlack,
+                    padding: 10,
+                    marginBottom: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: typography.fontStamp,
+                      color: isCloudActive ? '#d8f3dc' : colors.inkBlack,
+                      fontSize: 12,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {isCloudActive ? '● REALTIME CLOUD SYNC ACTIVE' : '○ OFFLINE LOCAL CACHE'}
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: typography.fontMono,
+                      color: isCloudActive ? '#b7e4c7' : colors.inkMuted,
+                      fontSize: 10,
+                      marginTop: 3,
+                    }}
+                  >
+                    {isCloudActive
+                      ? 'Remote Supabase DB is Source of Truth. Realtime adds, deletes, edits & rotations sync across phone and computer.'
+                      : 'Changes saved locally on this device. Connect Supabase to enable automatic realtime sync.'}
+                  </Text>
+                </View>
 
                 {syncStatusMsg && (
-                  <View style={[styles.searchBox, { padding: 8, marginBottom: 10, borderColor: colors.inkBlack, backgroundColor: syncStatusMsg.isError ? colors.secondary : colors.primary }]}>
-                    <Text style={{ fontFamily: typography.fontStamp, color: colors.cardSurface, fontSize: 12 }}>
+                  <View
+                    style={[
+                      styles.searchBox,
+                      {
+                        padding: 8,
+                        marginBottom: 10,
+                        borderColor: colors.inkBlack,
+                        backgroundColor: syncStatusMsg.isError ? colors.secondary : colors.primary,
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontFamily: typography.fontStamp, color: colors.cardSurface, fontSize: 11 }}>
                       {syncStatusMsg.text}
                     </Text>
                   </View>
                 )}
 
-                {/* EXPORT SECTION */}
-                <View style={{ marginBottom: 16, borderTopWidth: 1, borderTopColor: colors.inkMuted, paddingTop: 10 }}>
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.primary, marginBottom: 6 }]}>
-                    1. EXPORT REPERTOIRE ({exercises.length} DRILLS)
-                  </Text>
-                  <StampButton
-                    label="📋 COPY / SHARE BACKUP JSON"
-                    variant="primary"
-                    size="sm"
-                    onPress={handleCopyExport}
-                  />
-                  <TextInput
-                    value={syncExportJson}
-                    editable={false}
-                    multiline
-                    selectTextOnFocus
+                {/* SUPABASE CONNECTION FORM */}
+                <View style={{ marginBottom: 14 }}>
+                  <Text
                     style={[
-                      styles.modalInput,
-                      {
-                        fontFamily: typography.fontMono,
-                        borderColor: colors.inkBlack,
-                        backgroundColor: colors.recessedSurface,
-                        color: colors.inkBlack,
-                        height: 70,
-                        marginTop: 8,
-                        fontSize: 10,
-                      },
+                      styles.modalLabel,
+                      { fontFamily: typography.fontStamp, color: colors.inkBlack, marginBottom: 4 },
                     ]}
-                  />
-                </View>
-
-                {/* IMPORT SECTION */}
-                <View style={{ marginBottom: 16, borderTopWidth: 1, borderTopColor: colors.inkMuted, paddingTop: 10 }}>
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.tertiary, marginBottom: 6 }]}>
-                    2. IMPORT / RESTORE ON THIS DEVICE
+                  >
+                    SUPABASE PROJECT URL:
                   </Text>
                   <TextInput
-                    placeholder="Paste exported backup JSON here..."
+                    placeholder="https://xyzcompany.supabase.co"
                     placeholderTextColor={colors.inkMuted}
-                    value={syncImportJson}
-                    onChangeText={setSyncImportJson}
-                    multiline
+                    value={cloudUrl}
+                    onChangeText={setCloudUrl}
+                    autoCapitalize="none"
+                    autoCorrect={false}
                     style={[
                       styles.modalInput,
                       {
@@ -1006,19 +1085,173 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                         borderColor: colors.inkBlack,
                         backgroundColor: colors.cardSurface,
                         color: colors.textDark,
-                        height: 80,
                         fontSize: 11,
                       },
                     ]}
                   />
-                  <View style={{ marginTop: 8 }}>
+
+                  <Text
+                    style={[
+                      styles.modalLabel,
+                      { fontFamily: typography.fontStamp, color: colors.inkBlack, marginBottom: 4 },
+                    ]}
+                  >
+                    SUPABASE ANON KEY:
+                  </Text>
+                  <TextInput
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    placeholderTextColor={colors.inkMuted}
+                    value={cloudAnonKey}
+                    onChangeText={setCloudAnonKey}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry={false}
+                    style={[
+                      styles.modalInput,
+                      {
+                        fontFamily: typography.fontMono,
+                        borderColor: colors.inkBlack,
+                        backgroundColor: colors.cardSurface,
+                        color: colors.textDark,
+                        fontSize: 10,
+                      },
+                    ]}
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                     <StampButton
-                      label="📥 RESTORE & SYNC REPERTOIRE"
+                      label={
+                        isSyncingCloud
+                          ? 'SYNCING...'
+                          : isCloudActive
+                          ? '⚡ RE-CONNECT & SYNC'
+                          : '⚡ CONNECT & SYNC CLOUD'
+                      }
                       variant="primary"
                       size="sm"
-                      disabled={!syncImportJson.trim()}
-                      onPress={handleRunImport}
+                      disabled={isSyncingCloud || !cloudUrl.trim() || !cloudAnonKey.trim()}
+                      onPress={handleConnectAndSync}
                     />
+                    {isCloudActive && (
+                      <>
+                        <StampButton
+                          label="☁️ PULL LATEST"
+                          variant="secondary"
+                          size="sm"
+                          disabled={isSyncingCloud}
+                          onPress={handlePullFromCloud}
+                        />
+                        <StampButton
+                          label="DISCONNECT"
+                          variant="tertiary"
+                          size="sm"
+                          disabled={isSyncingCloud}
+                          onPress={handleDisconnectCloud}
+                        />
+                      </>
+                    )}
+                  </View>
+                </View>
+
+                {/* OFFLINE BACKUP (JSON EXPORT / IMPORT FALLBACK) */}
+                <View
+                  style={{
+                    marginVertical: 10,
+                    borderTopWidth: 2,
+                    borderTopColor: colors.inkBlack,
+                    paddingTop: 10,
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.bulkHelpText,
+                      { fontFamily: typography.fontStamp, color: colors.inkBlack, fontSize: 11, marginBottom: 2 },
+                    ]}
+                  >
+                    ── OFFLINE MANUAL BACKUP (JSON) ──
+                  </Text>
+                  <Text
+                    style={[
+                      styles.bulkHelpText,
+                      { fontFamily: typography.fontMono, color: colors.inkMuted, fontSize: 10, marginBottom: 8 },
+                    ]}
+                  >
+                    Manual offline backup and restore fallback.
+                  </Text>
+
+                  {/* EXPORT SECTION */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text
+                      style={[
+                        styles.modalLabel,
+                        { fontFamily: typography.fontStamp, color: colors.primary, marginBottom: 6 },
+                      ]}
+                    >
+                      1. EXPORT REPERTOIRE ({exercises.length} DRILLS)
+                    </Text>
+                    <StampButton
+                      label="📋 COPY / SHARE BACKUP JSON"
+                      variant="primary"
+                      size="sm"
+                      onPress={handleCopyExport}
+                    />
+                    <TextInput
+                      value={syncExportJson}
+                      editable={false}
+                      multiline
+                      selectTextOnFocus
+                      style={[
+                        styles.modalInput,
+                        {
+                          fontFamily: typography.fontMono,
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.recessedSurface,
+                          color: colors.inkBlack,
+                          height: 60,
+                          marginTop: 6,
+                          fontSize: 10,
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  {/* IMPORT SECTION */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text
+                      style={[
+                        styles.modalLabel,
+                        { fontFamily: typography.fontStamp, color: colors.tertiary, marginBottom: 6 },
+                      ]}
+                    >
+                      2. IMPORT / RESTORE ON THIS DEVICE
+                    </Text>
+                    <TextInput
+                      placeholder="Paste exported backup JSON here..."
+                      placeholderTextColor={colors.inkMuted}
+                      value={syncImportJson}
+                      onChangeText={setSyncImportJson}
+                      multiline
+                      style={[
+                        styles.modalInput,
+                        {
+                          fontFamily: typography.fontMono,
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                          height: 60,
+                          fontSize: 10,
+                        },
+                      ]}
+                    />
+                    <View style={{ marginTop: 6 }}>
+                      <StampButton
+                        label="📥 RESTORE REPERTOIRE"
+                        variant="primary"
+                        size="sm"
+                        disabled={!syncImportJson.trim()}
+                        onPress={handleRunImport}
+                      />
+                    </View>
                   </View>
                 </View>
 

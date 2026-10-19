@@ -40,8 +40,7 @@
           "icon": "./assets/icon.png",
           "color": "#D49B35"
         }
-      ],
-      "react-native-audio-api"
+      ]
     ]
   }
 }

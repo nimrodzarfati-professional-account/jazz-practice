@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS exercises (
   accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0,
   accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL
+);
 `;
 
 export const SEED_EXERCISES: Exercise[] = [

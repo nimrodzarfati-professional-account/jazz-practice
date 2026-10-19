@@ -45,6 +45,7 @@ import {
 } from './src/db/repository';
 import { generateSessionQueue } from './src/services/SchedulerEngine';
 import { setupAlarmChannel } from './src/services/AlarmManager';
+import { pullAllFromCloud, subscribeToRealtimeChanges } from './src/services/CloudSyncService';
 
 type TabRoute = 'shed' | 'crate' | 'callsheet';
 
@@ -93,6 +94,22 @@ function AppContent() {
     initDatabase();
     setupAlarmChannel();
     refreshData();
+
+    // Hydrate from cloud DB (Source of Truth)
+    pullAllFromCloud().then((res) => {
+      if (res.success && res.count > 0) {
+        refreshData();
+      }
+    });
+
+    // Subscribe to realtime multi-device updates
+    const unsubscribe = subscribeToRealtimeChanges(() => {
+      refreshData();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [refreshData]);
 
   const handleSelectExerciseFromCrate = (exercise: Exercise) => {

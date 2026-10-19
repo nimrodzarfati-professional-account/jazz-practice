@@ -15,6 +15,20 @@ interface SyncDb {
 
 let dbInstance: SyncDb | null = null;
 
+let onCloudPushExercise: ((ex: Exercise) => void) | null = null;
+let onCloudDeleteExercise: ((id: string) => void) | null = null;
+let onCloudPushStandard: ((std: ActiveStandard) => void) | null = null;
+
+export function registerCloudSyncHandlers(handlers: {
+  pushExercise: (ex: Exercise) => void;
+  deleteExercise: (id: string) => void;
+  pushStandard: (std: ActiveStandard) => void;
+}): void {
+  onCloudPushExercise = handlers.pushExercise;
+  onCloudDeleteExercise = handlers.deleteExercise;
+  onCloudPushStandard = handlers.pushStandard;
+}
+
 function getDb(): SyncDb {
   if (dbInstance) return dbInstance;
 
@@ -34,6 +48,11 @@ function getDb(): SyncDb {
           }
           const raw = localStorage.getItem(STD_KEY);
           return raw ? JSON.parse(raw) : null;
+        }
+        if (sql.includes('FROM app_settings')) {
+          const [key] = _params || [];
+          const val = localStorage.getItem('shed_v2_setting_' + key);
+          return val !== null ? ({ value: val } as unknown as T) : null;
         }
         if (sql.includes('FROM exercises')) {
           if (sql.includes('COUNT(*)')) {
@@ -87,10 +106,15 @@ function getDb(): SyncDb {
           localStorage.setItem(STD_KEY, JSON.stringify(std));
           return;
         }
-        if (sql.includes('UPDATE active_standard')) {
+        if (sql.includes('active_standard')) {
           const [title, defaultKey, startedAt, rotationCycleDays] = params;
           const std = { id: 'std_1', title, defaultKey, startedAt, rotationCycleDays };
           localStorage.setItem(STD_KEY, JSON.stringify(std));
+          return;
+        }
+        if (sql.includes('app_settings')) {
+          const [key, value] = params;
+          localStorage.setItem('shed_v2_setting_' + key, String(value));
           return;
         }
         if (sql.includes('INSERT INTO exercises')) {
@@ -264,6 +288,11 @@ export function initDatabase(): void {
       rotationChangedAt TEXT,
       accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0,
       accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
     );
   `);
 
@@ -500,7 +529,21 @@ export function rotateActiveStandard(
      WHERE id = 'std_1'`,
     [newTitle, newKey, nowIso, cycleDays]
   );
-  return getActiveStandard();
+  const updatedStd = getActiveStandard();
+  if (onCloudPushStandard) {
+    onCloudPushStandard(updatedStd);
+  }
+  return updatedStd;
+}
+
+/**
+ * Fetch a single exercise by ID
+ */
+export function getExerciseById(id: string): Exercise | null {
+  initDatabase();
+  const db = getDb();
+  const row = db.getFirstSync<any>('SELECT * FROM exercises WHERE id = ?', [id]);
+  return row ? mapRowToExercise(row) : null;
 }
 
 /**
@@ -548,6 +591,10 @@ export function toggleExerciseRotation(id: string, inRotation: boolean): void {
     'UPDATE exercises SET inRotation = ?, rotationChangedAt = ?, accumulatedInRotationMs = ?, accumulatedOutRotationMs = ? WHERE id = ?',
     [inRotation ? 1 : 0, nowIso, accIn, accOut, id]
   );
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
+  }
 }
 
 /**
@@ -568,6 +615,10 @@ export function graduateExerciseToMaintenance(id: string): void {
      WHERE id = ?`,
     [id]
   );
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
+  }
 }
 
 /**
@@ -593,6 +644,10 @@ export function updateExerciseProgress(
       `UPDATE exercises SET currentBpm = ?, masteredKeys = ? WHERE id = ?`,
       [bpm, JSON.stringify(keys), id]
     );
+  }
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
   }
 }
 
@@ -648,13 +703,17 @@ export function addExercise(ex: Omit<Exercise, 'id'> & { id?: string }): Exercis
       accumulatedOutRotationMs,
     ]
   );
-  return {
+  const result = {
     ...ex,
     id,
     rotationChangedAt,
     accumulatedInRotationMs,
     accumulatedOutRotationMs,
   };
+  if (onCloudPushExercise) {
+    onCloudPushExercise(result);
+  }
+  return result;
 }
 
 /**
@@ -664,6 +723,9 @@ export function deleteExercise(id: string): void {
   initDatabase();
   const db = getDb();
   db.runSync('DELETE FROM exercises WHERE id = ?', [id]);
+  if (onCloudDeleteExercise) {
+    onCloudDeleteExercise(id);
+  }
 }
 
 /**
@@ -703,6 +765,10 @@ export function updateExerciseDetails(
       id,
     ]
   );
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
+  }
 }
 
 /**
@@ -841,6 +907,25 @@ export function importVaultData(jsonStr: string): { success: boolean; count: num
     return { success: true, count };
   } catch (err: any) {
     return { success: false, count: 0, error: err?.message || 'Invalid JSON syntax.' };
+  }
+}
+
+export function getAppSetting(key: string): string | null {
+  try {
+    const db = getDb();
+    const row = db.getFirstSync<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', [key]);
+    return row ? row.value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAppSetting(key: string, value: string): void {
+  try {
+    const db = getDb();
+    db.runSync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', [key, value]);
+  } catch (err) {
+    console.warn('[Repository] setAppSetting error:', err);
   }
 }
 
