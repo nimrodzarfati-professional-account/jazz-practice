@@ -182,6 +182,18 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
 
         <View
           {...panResponder.panHandlers}
+          accessible={true}
+          accessibilityRole="adjustable"
+          accessibilityLabel={`${label} fader`}
+          accessibilityValue={{ min, max, now: safeValue }}
+          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') {
+              handleStepChange(step);
+            } else if (event.nativeEvent.actionName === 'decrement') {
+              handleStepChange(-step);
+            }
+          }}
           style={[
             styles.trackSlot,
             {
@@ -234,6 +246,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
       <View style={styles.stepperRow}>
         <Pressable
           onPress={() => handleStepChange(-step)}
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${label}`}
           style={[
             styles.stepBtn,
             { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
@@ -250,6 +264,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
         </Pressable>
         <Pressable
           onPress={() => handleStepChange(step)}
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${label}`}
           style={[
             styles.stepBtn,
             { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
