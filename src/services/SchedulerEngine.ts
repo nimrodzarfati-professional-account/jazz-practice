@@ -40,10 +40,13 @@ export function generateSessionQueue(
   maxIntensity: number,
   contextFilter: 'ALL' | MusicalContext = 'ALL'
 ): ScoredExercise[] {
+  const safeIntensity = Number.isFinite(maxIntensity) ? maxIntensity : 3;
+  const safeMinutes = Number.isFinite(availableMinutes) ? availableMinutes : 30;
+
   // 1. Strictly filter to exercises in current Active Rotation & within Intensity cap
   const eligible = allExercises
     .filter((ex) => ex.inRotation)
-    .filter((ex) => ex.intensity <= maxIntensity)
+    .filter((ex) => (Number.isFinite(ex.intensity) ? ex.intensity : 3) <= safeIntensity)
     .filter((ex) => contextFilter === 'ALL' || ex.context === contextFilter)
     .map((ex) => ({
       ...ex,
@@ -59,7 +62,7 @@ export function generateSessionQueue(
     .sort((a, b) => b.urgencyScore - a.urgencyScore);
 
   const packedQueue: ScoredExercise[] = [];
-  let remainingMinutes = availableMinutes;
+  let remainingMinutes = safeMinutes;
   let lastContext: MusicalContext | null = null;
 
   const pool = [...eligible];

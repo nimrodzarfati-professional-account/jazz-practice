@@ -2,7 +2,6 @@
  * Audio, Metronome & Studio Chime Service for Shed Engine
  */
 import * as Haptics from 'expo-haptics';
-import { AudioContext as NativeAudioContext } from 'react-native-audio-api';
 
 export type MetronomeFeelMode = 'BACKBEAT_2_4' | 'ALL_FOUR_2_4_ACCENT';
 export type MetronomeVoice = 'PENDULUM' | 'HI_HAT' | 'RIMSHOT' | 'WOODBLOCK';
@@ -19,7 +18,10 @@ let sharedAudioCtx: AudioContext | null = null;
 function getAudioContext(): AudioContext | null {
   try {
     if (typeof window !== 'undefined') {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext || NativeAudioContext;
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as any).webkitAudioContext ||
+        (typeof globalThis !== 'undefined' ? (globalThis as any).AudioContext : undefined);
       if (AudioContextClass) {
         if (!sharedAudioCtx) {
           sharedAudioCtx = new AudioContextClass() as any;

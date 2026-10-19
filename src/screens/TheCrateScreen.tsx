@@ -7,6 +7,7 @@ import {
   Modal,
   StyleSheet,
   Pressable,
+  Share,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
@@ -21,6 +22,8 @@ import {
   bulkAddExercises,
   updateExerciseDetails,
   deleteExercise,
+  exportVaultData,
+  importVaultData,
 } from '../db/repository';
 import {
   getRotationTenureStats,
@@ -54,8 +57,13 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
   // Unified Ingest Modal State
   const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState<'SINGLE' | 'BULK'>('SINGLE');
+  const [modalMode, setModalMode] = useState<'SINGLE' | 'BULK' | 'SYNC'>('SINGLE');
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
+
+  // Sync / Backup State
+  const [syncExportJson, setSyncExportJson] = useState('');
+  const [syncImportJson, setSyncImportJson] = useState('');
+  const [syncStatusMsg, setSyncStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
   // Single Drill Form State
   const [formTitle, setFormTitle] = useState('');
@@ -207,6 +215,48 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     onRefreshQueue();
   };
 
+  const handleOpenSync = () => {
+    setModalMode('SYNC');
+    const json = exportVaultData();
+    setSyncExportJson(json);
+    setSyncStatusMsg(null);
+  };
+
+  const handleCopyExport = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(syncExportJson);
+        setSyncStatusMsg({ text: `✓ Copied ${exercises.length} drills to clipboard!`, isError: false });
+        return;
+      } catch {}
+    }
+    try {
+      await Share.share({
+        title: 'Jazz Practice Shed Engine Repertoire Backup',
+        message: syncExportJson,
+      });
+      setSyncStatusMsg({ text: `✓ Backup ready to share/copy!`, isError: false });
+    } catch {
+      setSyncStatusMsg({ text: 'Select and copy the JSON text below', isError: false });
+    }
+  };
+
+  const handleRunImport = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const result = importVaultData(syncImportJson);
+    if (result.success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSyncStatusMsg({ text: `✓ Successfully imported & restored ${result.count} drills!`, isError: false });
+      loadData();
+      onRefreshQueue();
+      setSyncImportJson('');
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setSyncStatusMsg({ text: `✗ ${result.error}`, isError: true });
+    }
+  };
+
   const filteredExercises = exercises.filter((ex) => {
     const matchesSearch =
       ex.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -250,12 +300,23 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           </Text>
         </View>
 
-        <StampButton
-          label="+ INGEST DRILL"
-          variant="primary"
-          size="sm"
-          onPress={openAddModal}
-        />
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+          <StampButton
+            label="⇄ SYNC"
+            variant="tertiary"
+            size="sm"
+            onPress={() => {
+              openAddModal();
+              handleOpenSync();
+            }}
+          />
+          <StampButton
+            label="+ INGEST"
+            variant="primary"
+            size="sm"
+            onPress={openAddModal}
+          />
+        </View>
       </View>
 
       {/* Search Input */}
@@ -569,7 +630,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       },
                     ]}
                   >
-                    [ SINGLE DRILL ]
+                    [ SINGLE ]
                   </Text>
                 </Pressable>
 
@@ -593,7 +654,31 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       },
                     ]}
                   >
-                    [ BULK PASTE ]
+                    [ BULK ]
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleOpenSync}
+                  style={[
+                    styles.modeSwitchBtn,
+                    {
+                      borderColor: colors.inkBlack,
+                      backgroundColor:
+                        modalMode === 'SYNC' ? colors.primary : colors.recessedSurface,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modeSwitchText,
+                      {
+                        fontFamily: typography.fontStamp,
+                        color: modalMode === 'SYNC' ? colors.cardSurface : colors.inkBlack,
+                      },
+                    ]}
+                  >
+                    [ SYNC / BACKUP ]
                   </Text>
                 </Pressable>
               </View>
@@ -850,6 +935,101 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   />
                 </View>
               </View>
+            )}
+
+            {/* SYNC / BACKUP FORM */}
+            {modalMode === 'SYNC' && !editingExerciseId && (
+              <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator>
+                <Text style={[styles.bulkHelpText, { fontFamily: typography.fontMono, color: colors.inkBlack, marginBottom: 4 }]}>
+                  TRANSFER REPERTOIRE (MOBILE ↔ COMPUTER)
+                </Text>
+                <Text style={[styles.bulkHelpText, { fontFamily: typography.fontMono, color: colors.inkMuted, marginBottom: 12, fontSize: 11 }]}>
+                  Your drills are saved locally on this device. To transfer between devices:
+                  {'\n'}1. Tap EXPORT on your mobile phone to copy your entire repertoire.
+                  {'\n'}2. Paste it into IMPORT on your computer and tap RESTORE.
+                </Text>
+
+                {syncStatusMsg && (
+                  <View style={[styles.searchBox, { padding: 8, marginBottom: 10, borderColor: colors.inkBlack, backgroundColor: syncStatusMsg.isError ? colors.secondary : colors.primary }]}>
+                    <Text style={{ fontFamily: typography.fontStamp, color: colors.cardSurface, fontSize: 12 }}>
+                      {syncStatusMsg.text}
+                    </Text>
+                  </View>
+                )}
+
+                {/* EXPORT SECTION */}
+                <View style={{ marginBottom: 16, borderTopWidth: 1, borderTopColor: colors.inkMuted, paddingTop: 10 }}>
+                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.primary, marginBottom: 6 }]}>
+                    1. EXPORT REPERTOIRE ({exercises.length} DRILLS)
+                  </Text>
+                  <StampButton
+                    label="📋 COPY / SHARE BACKUP JSON"
+                    variant="primary"
+                    size="sm"
+                    onPress={handleCopyExport}
+                  />
+                  <TextInput
+                    value={syncExportJson}
+                    editable={false}
+                    multiline
+                    selectTextOnFocus
+                    style={[
+                      styles.modalInput,
+                      {
+                        fontFamily: typography.fontMono,
+                        borderColor: colors.inkBlack,
+                        backgroundColor: colors.recessedSurface,
+                        color: colors.inkBlack,
+                        height: 70,
+                        marginTop: 8,
+                        fontSize: 10,
+                      },
+                    ]}
+                  />
+                </View>
+
+                {/* IMPORT SECTION */}
+                <View style={{ marginBottom: 16, borderTopWidth: 1, borderTopColor: colors.inkMuted, paddingTop: 10 }}>
+                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.tertiary, marginBottom: 6 }]}>
+                    2. IMPORT / RESTORE ON THIS DEVICE
+                  </Text>
+                  <TextInput
+                    placeholder="Paste exported backup JSON here..."
+                    placeholderTextColor={colors.inkMuted}
+                    value={syncImportJson}
+                    onChangeText={setSyncImportJson}
+                    multiline
+                    style={[
+                      styles.modalInput,
+                      {
+                        fontFamily: typography.fontMono,
+                        borderColor: colors.inkBlack,
+                        backgroundColor: colors.cardSurface,
+                        color: colors.textDark,
+                        height: 80,
+                        fontSize: 11,
+                      },
+                    ]}
+                  />
+                  <View style={{ marginTop: 8 }}>
+                    <StampButton
+                      label="📥 RESTORE & SYNC REPERTOIRE"
+                      variant="primary"
+                      size="sm"
+                      disabled={!syncImportJson.trim()}
+                      onPress={handleRunImport}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.modalActions}>
+                  <StampButton
+                    label="CLOSE"
+                    variant="tertiary"
+                    onPress={() => setShowModal(false)}
+                  />
+                </View>
+              </ScrollView>
             )}
           </View>
         </View>

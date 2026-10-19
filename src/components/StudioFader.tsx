@@ -37,29 +37,54 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
   const { colors, typography } = useTheme();
   const faderAccent = accentColor || colors.tertiary;
 
-  const clampValue = (val: number) => {
-    const stepped = Math.round((val - min) / step) * step + min;
+  const clampValue = (val: number): number => {
+    if (typeof val !== 'number' || Number.isNaN(val) || !Number.isFinite(val)) {
+      const fallback = Number.isFinite(currentValueRef.current) ? currentValueRef.current : min;
+      return Math.max(min, Math.min(max, fallback));
+    }
+    const safeStep = step > 0 ? step : 1;
+    const stepped = Math.round((val - min) / safeStep) * safeStep + min;
     return Math.max(min, Math.min(max, stepped));
   };
 
-  const startValueRef = useRef(value);
-  const currentValueRef = useRef(value);
-  currentValueRef.current = value;
+  const startValueRef = useRef(Number.isFinite(value) ? value : min);
+  const currentValueRef = useRef(Number.isFinite(value) ? value : min);
+  currentValueRef.current = Number.isFinite(value) ? value : min;
+  const isDraggingRef = useRef(false);
 
-  const handleTrackPress = (evt: GestureResponderEvent) => {
-    const { locationY } = evt.nativeEvent;
-    const fraction = 1 - Math.max(0, Math.min(1, locationY / height));
-    const rawVal = min + fraction * (max - min);
-    const newVal = clampValue(rawVal);
-    if (newVal !== currentValueRef.current) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      onChange(newVal);
+  const extractY = (evt: GestureResponderEvent): number | undefined => {
+    const nativeEvt = evt.nativeEvent as any;
+    const currentTarget = (evt.currentTarget || evt.target) as any;
+
+    if (currentTarget && typeof currentTarget.getBoundingClientRect === 'function') {
+      const rect = currentTarget.getBoundingClientRect();
+      const clientY = typeof nativeEvt.clientY === 'number'
+        ? nativeEvt.clientY
+        : (nativeEvt.touches && nativeEvt.touches[0] ? nativeEvt.touches[0].clientY : undefined);
+      if (typeof clientY === 'number' && typeof rect.top === 'number') {
+        return clientY - rect.top;
+      }
     }
+
+    if (typeof nativeEvt.locationY === 'number' && !Number.isNaN(nativeEvt.locationY)) {
+      return nativeEvt.locationY;
+    }
+    if (typeof nativeEvt.offsetY === 'number' && !Number.isNaN(nativeEvt.offsetY)) {
+      return nativeEvt.offsetY;
+    }
+    return undefined;
+  };
+
+  const calculateValueFromY = (yPos: number): number => {
+    const fraction = 1 - Math.max(0, Math.min(1, yPos / height));
+    const rawVal = min + fraction * (max - min);
+    return clampValue(rawVal);
   };
 
   const handleStepChange = (delta: number) => {
-    const newVal = clampValue(currentValueRef.current + delta);
-    if (newVal !== currentValueRef.current) {
+    const currentVal = Number.isFinite(currentValueRef.current) ? currentValueRef.current : min;
+    const newVal = clampValue(currentVal + delta);
+    if (Number.isFinite(newVal) && newVal !== currentValueRef.current) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onChange(newVal);
     }
@@ -69,23 +94,49 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        startValueRef.current = currentValueRef.current;
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        isDraggingRef.current = true;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        const yPos = extractY(evt);
+        if (typeof yPos === 'number' && !Number.isNaN(yPos)) {
+          const newVal = calculateValueFromY(yPos);
+          startValueRef.current = newVal;
+          if (newVal !== currentValueRef.current) {
+            onChange(newVal);
+          }
+        } else {
+          startValueRef.current = Number.isFinite(currentValueRef.current) ? currentValueRef.current : min;
+        }
       },
-      onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-        const deltaFraction = -gestureState.dy / height;
-        const rawVal = startValueRef.current + deltaFraction * (max - min);
-        const newVal = clampValue(rawVal);
-        if (newVal !== currentValueRef.current) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPanResponderMove: (evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        isDraggingRef.current = true;
+        const directY = extractY(evt);
+        let newVal: number;
+        if (typeof directY === 'number' && !Number.isNaN(directY)) {
+          newVal = calculateValueFromY(directY);
+        } else {
+          const dy = typeof gestureState.dy === 'number' && Number.isFinite(gestureState.dy) ? gestureState.dy : 0;
+          const deltaFraction = -dy / height;
+          const baseVal = Number.isFinite(startValueRef.current) ? startValueRef.current : min;
+          newVal = clampValue(baseVal + deltaFraction * (max - min));
+        }
+        if (Number.isFinite(newVal) && newVal !== currentValueRef.current) {
           onChange(newVal);
         }
+      },
+      onPanResponderRelease: () => {
+        setTimeout(() => {
+          isDraggingRef.current = false;
+        }, 150);
+      },
+      onPanResponderTerminate: () => {
+        isDraggingRef.current = false;
       },
     })
   ).current;
 
-  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  const safeValue = Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
+  const percent = max > min ? ((safeValue - min) / (max - min)) * 100 : 0;
   const capTop = height - (percent / 100) * (height - 28) - 28;
 
   const tickCount = 6;
@@ -108,7 +159,7 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
             { fontFamily: typography.fontMonoBold, color: colors.inkBlack },
           ]}
         >
-          {value}
+          {safeValue}
           {unit ? ` ${unit}` : ''}
         </Text>
       </View>
@@ -129,7 +180,8 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
           ))}
         </View>
 
-        <Pressable
+        <View
+          {...panResponder.panHandlers}
           style={[
             styles.trackSlot,
             {
@@ -138,7 +190,6 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
               borderColor: colors.inkBlack,
             },
           ]}
-          onPress={handleTrackPress}
         >
           <View
             style={[
@@ -151,7 +202,6 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
           />
 
           <View
-            {...panResponder.panHandlers}
             style={[
               styles.faderCap,
               {
@@ -163,7 +213,7 @@ export const StudioFader: React.FC<StudioFaderProps> = ({
           >
             <View style={[styles.capIndicator, { backgroundColor: colors.primary }]} />
           </View>
-        </Pressable>
+        </View>
 
         <View style={styles.ticksColumn}>
           {ticks.map((t) => (

@@ -140,24 +140,28 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
         <View style={styles.fadersRow}>
           <StudioFader
             label="SESSION TIME"
-            value={availableMinutes}
+            value={Number.isFinite(availableMinutes) ? availableMinutes : 30}
             min={15}
             max={120}
             step={5}
             unit="min"
             accentColor={colors.primary}
-            onChange={onChangeMinutes}
+            onChange={(val) => {
+              if (Number.isFinite(val)) onChangeMinutes(val);
+            }}
           />
 
           <StudioFader
             label="CHOP BATTERY"
-            value={intensity}
+            value={Number.isFinite(intensity) ? intensity : 3}
             min={1}
             max={5}
             step={1}
             unit="/ 5"
             accentColor={colors.tertiary}
-            onChange={onChangeIntensity}
+            onChange={(val) => {
+              if (Number.isFinite(val)) onChangeIntensity(val);
+            }}
           />
         </View>
 

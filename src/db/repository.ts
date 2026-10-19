@@ -615,10 +615,10 @@ export function incrementSkippedForCanceledSession(exerciseIds: string[]): void 
 /**
  * Add a new exercise to SQLite / persistent store
  */
-export function addExercise(ex: Omit<Exercise, 'id'>): Exercise {
+export function addExercise(ex: Omit<Exercise, 'id'> & { id?: string }): Exercise {
   initDatabase();
   const db = getDb();
-  const id = `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const id = ex.id || `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const rotationChangedAt = ex.rotationChangedAt || new Date().toISOString();
   const accumulatedInRotationMs = ex.accumulatedInRotationMs || 0;
   const accumulatedOutRotationMs = ex.accumulatedOutRotationMs || 0;
@@ -727,5 +727,120 @@ export function bulkAddExercises(
       accumulatedOutRotationMs: item.accumulatedOutRotationMs || 0,
     })
   );
+}
+
+export interface VaultBackupPayload {
+  version: 2;
+  exportedAt: string;
+  activeStandard: ActiveStandard;
+  exercises: Exercise[];
+}
+
+/**
+ * Serializes the full Vault Repertoire & Active Standard into a shareable JSON backup string
+ */
+export function exportVaultData(): string {
+  initDatabase();
+  const activeStandard = getActiveStandard();
+  const exercises = getAllVaultExercises();
+  const payload: VaultBackupPayload = {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    activeStandard,
+    exercises,
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Imports and merges a Vault Repertoire backup (from JSON string).
+ * Works across both SQLite (mobile) and localStorage (computer/web).
+ */
+export function importVaultData(jsonStr: string): { success: boolean; count: number; error?: string } {
+  try {
+    initDatabase();
+    const cleanStr = jsonStr.trim();
+    if (!cleanStr) {
+      return { success: false, count: 0, error: 'Input is empty.' };
+    }
+    const data = JSON.parse(cleanStr);
+    let exercisesToImport: Exercise[] = [];
+
+    if (Array.isArray(data)) {
+      exercisesToImport = data;
+    } else if (data && Array.isArray(data.exercises)) {
+      exercisesToImport = data.exercises;
+      if (data.activeStandard && data.activeStandard.title) {
+        rotateActiveStandard(
+          data.activeStandard.title,
+          data.activeStandard.defaultKey || 'Bb',
+          data.activeStandard.rotationCycleDays || 14
+        );
+      }
+    } else {
+      return { success: false, count: 0, error: 'Invalid backup format. Expected a JSON object with exercises.' };
+    }
+
+    if (exercisesToImport.length === 0) {
+      return { success: false, count: 0, error: 'No exercises found in backup.' };
+    }
+
+    const db = getDb();
+    let count = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const ex of exercisesToImport) {
+      if (!ex.title) continue;
+      const id = ex.id || `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const existing = db.getFirstSync<any>('SELECT id FROM exercises WHERE id = ?', [id]);
+
+      if (existing) {
+        updateExerciseDetails(id, {
+          title: ex.title,
+          description: ex.description || '',
+          context: ex.context || 'SOLOING',
+          category: ex.category || 'NEW_CONCEPT',
+          durationMinutes: Number(ex.durationMinutes) || 15,
+          intensity: Number(ex.intensity) || 3,
+          basePriority: Number(ex.basePriority) || 7,
+          currentBpm: Number(ex.currentBpm) || 120,
+          isKeyBased: Boolean(ex.isKeyBased),
+          usesActiveStandard: Boolean(ex.usesActiveStandard),
+        });
+        if (ex.masteredKeys) {
+          updateExerciseProgress(id, Number(ex.currentBpm) || 120, ex.masteredKeys, false);
+        }
+        if (typeof ex.inRotation === 'boolean') {
+          toggleExerciseRotation(id, ex.inRotation);
+        }
+      } else {
+        addExercise({
+          id,
+          title: ex.title,
+          description: ex.description || '',
+          context: ex.context || 'SOLOING',
+          category: ex.category || 'NEW_CONCEPT',
+          inRotation: ex.inRotation ?? true,
+          durationMinutes: Number(ex.durationMinutes) || 15,
+          intensity: Number(ex.intensity) || 3,
+          basePriority: Number(ex.basePriority) || 7,
+          currentBpm: Number(ex.currentBpm) || 120,
+          isKeyBased: Boolean(ex.isKeyBased),
+          masteredKeys: Array.isArray(ex.masteredKeys) ? ex.masteredKeys : [],
+          usesActiveStandard: Boolean(ex.usesActiveStandard),
+          lastPracticedAt: ex.lastPracticedAt || null,
+          skippedCount: Number(ex.skippedCount) || 0,
+          rotationChangedAt: ex.rotationChangedAt || nowIso,
+          accumulatedInRotationMs: Number(ex.accumulatedInRotationMs) || 0,
+          accumulatedOutRotationMs: Number(ex.accumulatedOutRotationMs) || 0,
+        });
+      }
+      count++;
+    }
+
+    return { success: true, count };
+  } catch (err: any) {
+    return { success: false, count: 0, error: err?.message || 'Invalid JSON syntax.' };
+  }
 }
 

@@ -160,8 +160,12 @@ function AppContent() {
             intensity={intensity}
             contextFilter={contextFilter}
             previewQueue={queue}
-            onChangeMinutes={(m) => setAvailableMinutes(m)}
-            onChangeIntensity={(i) => setIntensity(i)}
+            onChangeMinutes={(m) => {
+              if (Number.isFinite(m) && m >= 15 && m <= 120) setAvailableMinutes(m);
+            }}
+            onChangeIntensity={(i) => {
+              if (Number.isFinite(i) && i >= 1 && i <= 5) setIntensity(i);
+            }}
             onChangeContextFilter={(f) => setContextFilter(f)}
             onStartSession={() => setActiveTab('shed')}
             onOpenRotateStandardModal={() => setShowRotateModal(true)}
