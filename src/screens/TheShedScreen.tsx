@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { ActiveStandard, PitchKey, ScoredExercise } from '../types/models';
 import { CreamBlock } from '../components/CreamBlock';
 import { ActiveStandardBanner } from '../components/ActiveStandardBanner';
@@ -36,10 +37,11 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   onUpdateQueueItem,
 }) => {
   const { colors, typography } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
+
   const [activeIndex, setActiveIndex] = useState(0);
   const activeExercise = queue[activeIndex] || null;
 
-  // Timer is automatically set by the active exercise's allocatedMinutes
   const [secondsLeft, setSecondsLeft] = useState<number>(
     activeExercise ? activeExercise.allocatedMinutes * 60 : 900
   );
@@ -95,7 +97,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 
   const handleBlockFinished = () => {
     setIsRunning(false);
-    playBlockCompleteChime(); // Studio chime only — NO voice TTS
+    playBlockCompleteChime();
     if (activeExercise) {
       updateExerciseProgress(
         activeExercise.id,
@@ -104,7 +106,6 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
         true
       );
       onRefreshData();
-      // Auto-advance to next queued exercise if available
       if (activeIndex < queue.length - 1) {
         setActiveIndex((idx) => idx + 1);
       }
@@ -182,27 +183,504 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   if (!activeExercise) {
     return (
       <View style={[styles.emptyWrap, { backgroundColor: colors.canvasBg }]}>
-        <CreamBlock>
-          <Text style={[{ fontFamily: typography.fontDisplay, fontSize: 18, color: colors.inkBlack, textAlign: 'center' }]}>
-            No exercises in Active Rotation match this filter.
-          </Text>
-          <Text style={[{ fontFamily: typography.fontMono, fontSize: 13, color: colors.inkMuted, marginTop: 8, textAlign: 'center' }]}>
-            Head to [ THE CRATE ] to add drills to your rotation, or [ CALL SHEET ] to adjust your faders.
-          </Text>
-        </CreamBlock>
+        <View style={{ maxWidth: 520, width: '100%' }}>
+          <CreamBlock>
+            <Text
+              style={{
+                fontFamily: typography.fontDisplay,
+                fontSize: 18,
+                color: colors.inkBlack,
+                textAlign: 'center',
+              }}
+            >
+              No exercises in Active Rotation match this filter.
+            </Text>
+            <Text
+              style={{
+                fontFamily: typography.fontMono,
+                fontSize: 13,
+                color: colors.inkMuted,
+                marginTop: 8,
+                textAlign: 'center',
+              }}
+            >
+              Head to [ THE CRATE ] to add drills to your rotation, or [ CALL SHEET ] to adjust your faders.
+            </Text>
+          </CreamBlock>
+        </View>
       </View>
     );
   }
 
   const totalAllocatedSec = Math.max(1, activeExercise.allocatedMinutes * 60);
-  const progressPct = Math.max(0, Math.min(100, ((totalAllocatedSec - secondsLeft) / totalAllocatedSec) * 100));
+  const progressPct = Math.max(
+    0,
+    Math.min(100, ((totalAllocatedSec - secondsLeft) / totalAllocatedSec) * 100)
+  );
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
 
+  const renderTransportWell = () => (
+    <View
+      style={[
+        styles.timerWell,
+        { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
+      ]}
+    >
+      {/* Linear Progress Bar */}
+      <View
+        style={[
+          styles.progressBarTrack,
+          { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
+        ]}
+      >
+        <View
+          style={[
+            styles.progressBarFill,
+            { width: `${progressPct}%`, backgroundColor: colors.primary },
+          ]}
+        />
+      </View>
+
+      <View style={styles.timerTopRow}>
+        <View>
+          <Text style={{ fontFamily: typography.fontStamp, fontSize: 10, color: colors.inkMuted }}>
+            EXERCISE TIMER ({activeExercise.allocatedMinutes} MIN SET)
+          </Text>
+          <Text
+            style={[
+              styles.timerDigits,
+              isDesktop && { fontSize: 44 },
+              { fontFamily: typography.fontMonoBold, color: colors.inkBlack },
+            ]}
+          >
+            {mm}:{ss}
+          </Text>
+        </View>
+
+        <View style={styles.timerControls}>
+          <StampButton
+            label={isRunning ? '⏸ PAUSE' : '▶ START'}
+            variant="primary"
+            size="md"
+            onPress={() => setIsRunning(!isRunning)}
+          />
+        </View>
+      </View>
+
+      {/* Metronome Control Row */}
+      <View style={[styles.metronomeSection, { borderTopColor: colors.inkBlack }]}>
+        <View style={styles.bpmRow}>
+          <Pressable
+            accessibilityLabel="Decrease BPM by 5"
+            accessibilityRole="button"
+            onPress={() => handleBpmStep(-5)}
+            style={[
+              styles.bpmStepBtn,
+              { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface },
+            ]}
+          >
+            <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+              -5
+            </Text>
+          </Pressable>
+
+          <Text style={[styles.bpmValueText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+            ♩ {activeExercise.currentBpm} BPM
+          </Text>
+
+          <Pressable
+            accessibilityLabel="Increase BPM by 5"
+            accessibilityRole="button"
+            onPress={() => handleBpmStep(5)}
+            style={[
+              styles.bpmStepBtn,
+              { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface },
+            ]}
+          >
+            <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+              +5
+            </Text>
+          </Pressable>
+
+          <StampButton
+            label={isMetronomeOn ? 'STOP CLICK' : 'START CLICK'}
+            variant={isMetronomeOn ? 'secondary' : 'tertiary'}
+            size="sm"
+            onPress={toggleMetronome}
+          />
+        </View>
+
+        {/* Metronome Sound Voice Selector */}
+        <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
+          {METRONOME_VOICES.map((v) => {
+            const isSelected = metronomeVoice === v.id;
+            return (
+              <Pressable
+                key={v.id}
+                accessibilityLabel={`Metronome sound ${v.label}`}
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  audioMetronomeService.setVoice(v.id);
+                  setMetronomeVoice(v.id);
+                }}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.inkBlack,
+                  paddingVertical: 5,
+                  alignItems: 'center',
+                  backgroundColor: isSelected ? colors.tertiary : colors.cardSurface,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 9,
+                    letterSpacing: 0.6,
+                    color: isSelected ? colors.cardSurface : colors.inkBlack,
+                  }}
+                >
+                  {v.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Enforced Jazz 2 & 4 Pocket Toggle + Visual 4-Beat Pulse */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginTop: 10,
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <Pressable
+            accessibilityLabel="Toggle 2 and 4 backbeat mode"
+            accessibilityRole="button"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              const nextMode: MetronomeFeelMode =
+                feelMode === 'BACKBEAT_2_4' ? 'ALL_FOUR_2_4_ACCENT' : 'BACKBEAT_2_4';
+              audioMetronomeService.setFeelMode(nextMode);
+              setFeelMode(nextMode);
+            }}
+            style={{
+              borderWidth: 1.5,
+              borderColor: colors.inkBlack,
+              paddingHorizontal: 8,
+              paddingVertical: 5,
+              backgroundColor: feelMode === 'BACKBEAT_2_4' ? colors.secondary : colors.cardSurface,
+            }}
+          >
+            <Text
+              style={{
+                fontFamily: typography.fontStamp,
+                fontSize: 10,
+                letterSpacing: 0.8,
+                color: feelMode === 'BACKBEAT_2_4' ? colors.cardSurface : colors.inkBlack,
+              }}
+            >
+              {feelMode === 'BACKBEAT_2_4' ? '✓ 2 & 4 ONLY (JAZZ LOCK)' : '1-2-3-4 (ACCENT 2 & 4)'}
+            </Text>
+          </Pressable>
+
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[1, 2, 3, 4].map((beat) => {
+              const isCurrent = isMetronomeOn && currentBeat === beat;
+              const isBackbeat = beat === 2 || beat === 4;
+              const isMutedBeat = feelMode === 'BACKBEAT_2_4' && !isBackbeat;
+              return (
+                <View
+                  key={`beat-${beat}`}
+                  style={[
+                    styles.beatDot,
+                    {
+                      borderColor: colors.inkBlack,
+                      opacity: isMutedBeat && !isCurrent ? 0.45 : 1,
+                      backgroundColor: isCurrent
+                        ? isBackbeat
+                          ? colors.primary
+                          : colors.recessedSurface
+                        : colors.cardSurface,
+                      transform: [{ scale: isCurrent && isBackbeat ? 1.18 : 1 }],
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.beatNumber,
+                      {
+                        fontFamily: typography.fontMonoBold,
+                        color: isCurrent && isBackbeat ? colors.cardSurface : colors.inkMuted,
+                      },
+                    ]}
+                  >
+                    {beat}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
+  /* ============================================================
+   * DESKTOP / COMPUTER 2-COLUMN STUDIO CONTROL ROOM
+   * ============================================================ */
+  if (isDesktop) {
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.canvasBg }]}
+        contentContainerStyle={styles.desktopScrollContent}
+      >
+        <View style={styles.desktopWorkspace}>
+          {/* Top Workstation Header Strip */}
+          <View
+            style={[
+              styles.desktopHeaderStrip,
+              { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
+            ]}
+          >
+            <View>
+              <Text style={{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.primary, letterSpacing: 1.2 }}>
+                STUDIO CONTROL ROOM // ACTIVE WOODSHED
+              </Text>
+              <Text style={{ fontFamily: typography.fontDisplay, fontSize: 22, color: colors.inkBlack }}>
+                BLOCK {String(activeIndex + 1).padStart(2, '0')} OF {String(queue.length).padStart(2, '0')} — {activeExercise.title}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+              <StampButton
+                label="← PREV BLOCK"
+                variant="tertiary"
+                size="sm"
+                disabled={activeIndex === 0}
+                onPress={handlePrevDrill}
+              />
+              <StampButton
+                label="NEXT BLOCK →"
+                variant="tertiary"
+                size="sm"
+                disabled={activeIndex >= queue.length - 1}
+                onPress={handleNextDrill}
+              />
+            </View>
+          </View>
+
+          <View style={styles.desktopColumns}>
+            {/* LEFT COLUMN: Active Drill Sheet & 12-Key Circle Stamp Pad */}
+            <View style={styles.desktopLeftCol}>
+              <CreamBlock>
+                <View style={styles.metaRow}>
+                  <View style={styles.badgeRow}>
+                    <StampBadge label={activeExercise.context} type={activeExercise.context} />
+                    <StampBadge
+                      label={activeExercise.category.replace('_', ' ')}
+                      type={activeExercise.category}
+                    />
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: typography.fontMonoBold,
+                      fontSize: 12,
+                      color: colors.inkBlack,
+                    }}
+                  >
+                    {activeExercise.allocatedMinutes}m BLOCK • URGENCY {activeExercise.urgencyScore}%
+                  </Text>
+                </View>
+
+                <Text
+                  style={[
+                    styles.title,
+                    { fontSize: 26, fontFamily: typography.fontDisplay, color: colors.inkBlack },
+                  ]}
+                >
+                  {activeExercise.title}
+                </Text>
+
+                {activeExercise.assignedStandardTitle && (
+                  <View
+                    style={[
+                      styles.standardCallout,
+                      { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: typography.fontStamp,
+                        fontSize: 12,
+                        color: colors.secondary,
+                      }}
+                    >
+                      🎵 PRACTICE OVER STANDARD: {activeExercise.assignedStandardTitle}
+                    </Text>
+                  </View>
+                )}
+
+                <Text
+                  style={[
+                    styles.desc,
+                    { fontSize: 14, lineHeight: 21, fontFamily: typography.fontMono, color: colors.inkMuted },
+                  ]}
+                >
+                  {activeExercise.description}
+                </Text>
+
+                {/* 12-Key Circle Stamp Pad */}
+                <KeyStampGrid
+                  isKeyBased={activeExercise.isKeyBased}
+                  masteredKeys={activeExercise.masteredKeys}
+                  onToggleKey={handleToggleKey}
+                />
+
+                {activeExercise.category !== 'MAINTENANCE' && (
+                  <View style={{ marginTop: 18 }}>
+                    <StampButton
+                      label="🎓 GRADUATE TO MAINTENANCE (BIND TO STANDARD)"
+                      variant="tertiary"
+                      onPress={handleGraduate}
+                    />
+                  </View>
+                )}
+              </CreamBlock>
+            </View>
+
+            {/* RIGHT COLUMN: Hardware Transport Console + Vertical Session Queue Rack */}
+            <View style={styles.desktopRightCol}>
+              <CreamBlock>
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 12,
+                    letterSpacing: 1.2,
+                    color: colors.inkBlack,
+                    marginBottom: 8,
+                  }}
+                >
+                  MASTER TRANSPORT & METRONOME
+                </Text>
+                {renderTransportWell()}
+              </CreamBlock>
+
+              {/* Vertical Session Queue Setlist */}
+              <CreamBlock>
+                <View
+                  style={[
+                    styles.desktopQueueHeader,
+                    { borderBottomColor: colors.inkBlack },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      fontFamily: typography.fontStamp,
+                      fontSize: 12,
+                      letterSpacing: 1.2,
+                      color: colors.inkBlack,
+                    }}
+                  >
+                    SESSION SETLIST ({queue.length} BLOCKS)
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: typography.fontMono,
+                      fontSize: 11,
+                      color: colors.inkMuted,
+                    }}
+                  >
+                    Click to jump
+                  </Text>
+                </View>
+
+                {queue.map((item, idx) => {
+                  const isCurrent = idx === activeIndex;
+                  return (
+                    <Pressable
+                      key={`${item.id}-${idx}`}
+                      accessibilityLabel={`Jump to block ${idx + 1}, ${item.title}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isCurrent }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setActiveIndex(idx);
+                      }}
+                      style={[
+                        styles.desktopQueueRow,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: isCurrent
+                            ? colors.primary
+                            : idx % 2 === 0
+                              ? colors.cardSurface
+                              : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontMonoBold,
+                          fontSize: 12,
+                          color: isCurrent ? colors.cardSurface : colors.inkMuted,
+                          width: 26,
+                        }}
+                      >
+                        {String(idx + 1).padStart(2, '0')}
+                      </Text>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text
+                          style={{
+                            fontFamily: typography.fontHeading,
+                            fontSize: 14,
+                            color: isCurrent ? colors.cardSurface : colors.inkBlack,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: typography.fontMono,
+                            fontSize: 10,
+                            color: isCurrent ? colors.cardSurface : colors.inkMuted,
+                          }}
+                        >
+                          {item.context} • {item.currentBpm} BPM • Urgency {item.urgencyScore}%
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          fontFamily: typography.fontMonoBold,
+                          fontSize: 12,
+                          color: isCurrent ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {item.allocatedMinutes}m
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </CreamBlock>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  /* ============================================================
+   * MOBILE SINGLE-COLUMN STACK
+   * ============================================================ */
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
-      {/* Clickable Horizontal Active Queue Strip */}
       {queue.length > 0 && (
         <ScrollView
           horizontal
@@ -215,6 +693,8 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             return (
               <Pressable
                 key={`${item.id}-${idx}`}
+                accessibilityLabel={`Queue block ${idx + 1} ${item.title}`}
+                accessibilityRole="button"
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setActiveIndex(idx);
@@ -236,7 +716,9 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                     },
                   ]}
                 >
-                  {String(idx + 1).padStart(2, '0')} {item.title.length > 18 ? item.title.substring(0, 16) + '...' : item.title} ({item.allocatedMinutes}m)
+                  {String(idx + 1).padStart(2, '0')}{' '}
+                  {item.title.length > 18 ? item.title.substring(0, 16) + '...' : item.title} (
+                  {item.allocatedMinutes}m)
                 </Text>
               </Pressable>
             );
@@ -244,18 +726,19 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
         </ScrollView>
       )}
 
-      {/* 1-2 Week Active Jazz Standard Strip */}
       <ActiveStandardBanner
         standard={activeStandard}
         onPressRotate={onOpenRotateStandardModal}
       />
 
-      {/* Active Exercise Cream Card */}
       <CreamBlock>
         <View style={styles.metaRow}>
           <View style={styles.badgeRow}>
             <StampBadge label={activeExercise.context} type={activeExercise.context} />
-            <StampBadge label={activeExercise.category.replace('_', ' ')} type={activeExercise.category} />
+            <StampBadge
+              label={activeExercise.category.replace('_', ' ')}
+              type={activeExercise.category}
+            />
           </View>
           <Text style={{ fontFamily: typography.fontMonoBold, fontSize: 12, color: colors.inkBlack }}>
             {activeExercise.allocatedMinutes}m BLOCK • URGENCY {activeExercise.urgencyScore}%
@@ -266,7 +749,6 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
           {activeExercise.title}
         </Text>
 
-        {/* Bound Active Standard Callout for Maintenance Exercises */}
         {activeExercise.assignedStandardTitle && (
           <View
             style={[
@@ -284,179 +766,8 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
           {activeExercise.description}
         </Text>
 
-        {/* Exercise-Driven Countdown Timer Readout */}
-        <View
-          style={[
-            styles.timerWell,
-            { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
-          ]}
-        >
-          {/* Linear Progress Bar */}
-          <View style={[styles.progressBarTrack, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
-            <View style={[styles.progressBarFill, { width: `${progressPct}%`, backgroundColor: colors.primary }]} />
-          </View>
+        {renderTransportWell()}
 
-          <View style={styles.timerTopRow}>
-            <View>
-              <Text style={{ fontFamily: typography.fontStamp, fontSize: 10, color: colors.inkMuted }}>
-                EXERCISE TIMER ({activeExercise.allocatedMinutes} MIN SET)
-              </Text>
-              <Text style={[styles.timerDigits, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
-                {mm}:{ss}
-              </Text>
-            </View>
-
-            <View style={styles.timerControls}>
-              <StampButton
-                label={isRunning ? '⏸ PAUSE' : '▶ START'}
-                variant="primary"
-                size="md"
-                onPress={() => setIsRunning(!isRunning)}
-              />
-            </View>
-          </View>
-
-          {/* Metronome Control Row with -5 / +5 Steppers & Visual 4-Beat Pulse */}
-          <View style={[styles.metronomeSection, { borderTopColor: colors.inkBlack }]}>
-            <View style={styles.bpmRow}>
-              <Pressable
-                onPress={() => handleBpmStep(-5)}
-                style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
-              >
-                <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>-5</Text>
-              </Pressable>
-
-              <Text style={[styles.bpmValueText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
-                ♩ {activeExercise.currentBpm} BPM
-              </Text>
-
-              <Pressable
-                onPress={() => handleBpmStep(5)}
-                style={[styles.bpmStepBtn, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}
-              >
-                <Text style={[styles.bpmStepText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>+5</Text>
-              </Pressable>
-
-              <StampButton
-                label={isMetronomeOn ? 'STOP CLICK' : 'START CLICK'}
-                variant={isMetronomeOn ? 'secondary' : 'tertiary'}
-                size="sm"
-                onPress={toggleMetronome}
-              />
-            </View>
-
-            {/* Metronome Sound Voice Selector */}
-            <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
-              {METRONOME_VOICES.map((v) => {
-                const isSelected = metronomeVoice === v.id;
-                return (
-                  <Pressable
-                    key={v.id}
-                    accessibilityLabel={`Metronome sound ${v.label}`}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      audioMetronomeService.setVoice(v.id);
-                      setMetronomeVoice(v.id);
-                    }}
-                    style={{
-                      flex: 1,
-                      borderWidth: 1,
-                      borderColor: colors.inkBlack,
-                      paddingVertical: 4,
-                      alignItems: 'center',
-                      backgroundColor: isSelected ? colors.tertiary : colors.cardSurface,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontFamily: typography.fontStamp,
-                        fontSize: 9,
-                        letterSpacing: 0.6,
-                        color: isSelected ? colors.cardSurface : colors.inkBlack,
-                      }}
-                    >
-                      {v.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Enforced Jazz 2 & 4 Pocket Toggle + Visual 4-Beat Pulse */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
-              <Pressable
-                accessibilityLabel="Toggle 2 and 4 backbeat mode"
-                accessibilityRole="button"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  const nextMode: MetronomeFeelMode =
-                    feelMode === 'BACKBEAT_2_4' ? 'ALL_FOUR_2_4_ACCENT' : 'BACKBEAT_2_4';
-                  audioMetronomeService.setFeelMode(nextMode);
-                  setFeelMode(nextMode);
-                }}
-                style={{
-                  borderWidth: 1.5,
-                  borderColor: colors.inkBlack,
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  backgroundColor: feelMode === 'BACKBEAT_2_4' ? colors.secondary : colors.cardSurface,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: typography.fontStamp,
-                    fontSize: 10,
-                    letterSpacing: 0.8,
-                    color: feelMode === 'BACKBEAT_2_4' ? colors.cardSurface : colors.inkBlack,
-                  }}
-                >
-                  {feelMode === 'BACKBEAT_2_4' ? '✓ 2 & 4 ONLY (JAZZ LOCK)' : '1-2-3-4 (ACCENT 2 & 4)'}
-                </Text>
-              </Pressable>
-
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {[1, 2, 3, 4].map((beat) => {
-                  const isCurrent = isMetronomeOn && currentBeat === beat;
-                  const isBackbeat = beat === 2 || beat === 4;
-                  const isMutedBeat = feelMode === 'BACKBEAT_2_4' && !isBackbeat;
-                  return (
-                    <View
-                      key={`beat-${beat}`}
-                      style={[
-                        styles.beatDot,
-                        {
-                          borderColor: colors.inkBlack,
-                          opacity: isMutedBeat && !isCurrent ? 0.45 : 1,
-                          backgroundColor: isCurrent
-                            ? isBackbeat
-                              ? colors.primary
-                              : colors.recessedSurface
-                            : colors.cardSurface,
-                          transform: [{ scale: isCurrent && isBackbeat ? 1.2 : 1 }],
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.beatNumber,
-                          {
-                            fontFamily: typography.fontMonoBold,
-                            color: isCurrent && isBackbeat ? colors.cardSurface : colors.inkMuted,
-                          },
-                        ]}
-                      >
-                        {beat}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Queue Navigator: Block X of Y */}
         <View style={[styles.navRow, { borderColor: colors.recessedSurface }]}>
           <StampButton
             label="← PREV"
@@ -465,7 +776,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             disabled={activeIndex === 0}
             onPress={handlePrevDrill}
           />
-          <Text style={[{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.inkMuted }]}>
+          <Text style={{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.inkMuted }}>
             BLOCK {activeIndex + 1} OF {queue.length}
           </Text>
           <StampButton
@@ -477,14 +788,12 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
           />
         </View>
 
-        {/* Conditional 12-Key Grid (Renders ONLY if activeExercise.isKeyBased === true) */}
         <KeyStampGrid
           isKeyBased={activeExercise.isKeyBased}
           masteredKeys={activeExercise.masteredKeys}
           onToggleKey={handleToggleKey}
         />
 
-        {/* 1-Tap Graduate to Maintenance Button (Shown for NEW_CONCEPT or TRANSCRIBING) */}
         {activeExercise.category !== 'MAINTENANCE' && (
           <View style={{ marginTop: 14 }}>
             <StampButton
@@ -502,6 +811,53 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 14 },
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  /* Desktop Layout Styles */
+  desktopScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  desktopWorkspace: {
+    width: '100%',
+    maxWidth: 1240,
+  },
+  desktopHeaderStrip: {
+    borderWidth: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  desktopColumns: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 22,
+  },
+  desktopLeftCol: {
+    flex: 1.35,
+  },
+  desktopRightCol: {
+    flex: 1,
+  },
+  desktopQueueHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1.5,
+    paddingBottom: 6,
+    marginBottom: 8,
+  },
+  desktopQueueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  /* Mobile & Shared Styles */
   queueStrip: {
     marginBottom: 10,
   },
@@ -531,12 +887,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: { fontSize: 21, marginTop: 8, marginBottom: 6 },
-  standardCallout: { borderWidth: 1.5, padding: 7, marginBottom: 8 },
+  standardCallout: { borderWidth: 1.5, padding: 8, marginBottom: 10 },
   desc: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
   timerWell: {
     borderWidth: 2,
     padding: 12,
-    marginBottom: 10,
+    marginBottom: 4,
   },
   progressBarTrack: {
     height: 6,
@@ -582,11 +938,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     flex: 1,
     textAlign: 'center',
-  },
-  beatPulseRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 10,
   },
   beatDot: {
     width: 32,

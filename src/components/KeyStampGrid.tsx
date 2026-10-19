@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { PitchKey } from '../types/models';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 
 const CIRCLE_OF_FIFTHS: PitchKey[] = [
   'C', 'F', 'Bb', 'Eb', 'Ab', 'Db',
@@ -21,8 +22,8 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
   onToggleKey,
 }) => {
   const { colors, typography } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
 
-  // Hide completely if the exercise is not key-related
   if (!isKeyBased) {
     return null;
   }
@@ -49,13 +50,17 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
           return (
             <Pressable
               key={k}
+              accessibilityLabel={`Key of ${k}, ${isStamped ? 'mastered' : 'not mastered'}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isStamped }}
               onPress={() => handlePress(k)}
               style={[
                 styles.cell,
+                isDesktop ? styles.cellDesktop : styles.cellMobile,
                 {
                   backgroundColor: isStamped ? colors.recessedSurface : colors.cardSurface,
                   borderColor: isStamped ? colors.secondary : colors.inkBlack,
-                  transform: [{ rotate: isStamped ? '-3deg' : '0deg' }],
+                  transform: [{ rotate: isStamped ? '-2deg' : '0deg' }],
                 },
               ]}
             >
@@ -83,11 +88,12 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 10,
+    marginTop: 12,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     borderBottomWidth: 1.5,
     paddingBottom: 4,
     marginBottom: 8,
@@ -105,20 +111,27 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   cell: {
-    width: '15%',
-    aspectRatio: 1.2,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+  },
+  cellMobile: {
+    width: '15%',
+    height: 44,
+  },
+  cellDesktop: {
+    width: '15.4%',
+    maxWidth: 76,
+    height: 46,
   },
   keyText: {
     fontSize: 13,
   },
   checkMark: {
     position: 'absolute',
-    top: 1,
-    right: 3,
+    top: 2,
+    right: 4,
     fontSize: 9,
     fontWeight: 'bold',
   },

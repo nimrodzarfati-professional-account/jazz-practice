@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { Exercise, MusicalContext, ExerciseCategory } from '../types/models';
 import { CreamBlock } from '../components/CreamBlock';
 import { StampButton } from '../components/StampButton';
@@ -43,13 +44,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   onRefreshQueue,
 }) => {
   const { colors, typography } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
+
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRotationFilter, setSelectedRotationFilter] = useState<'ALL' | 'ACTIVE' | 'VAULT'>('ALL');
   const [selectedContext, setSelectedContext] = useState<'ALL' | MusicalContext>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<'ALL' | ExerciseCategory>('ALL');
 
-  // Collapsible Index Cards Expanded State
   const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
 
   // Unified Ingest Modal State
@@ -229,320 +231,529 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const rotationCount = exercises.filter((e) => e.inRotation).length;
   const vaultedCount = exercises.length - rotationCount;
 
-  return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
-      {/* Header Banner — Zero extra buttons added */}
+  const renderExerciseCard = (ex: Exercise) => {
+    const stats = getRotationTenureStats(ex);
+    const isExpanded = !!expandedCardIds[ex.id];
+
+    return (
       <View
-        style={[
-          styles.headerBanner,
-          { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-        ]}
+        key={ex.id}
+        style={isDesktop ? styles.desktopCardCell : undefined}
       >
-        <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={[styles.headerSub, { fontFamily: typography.fontStamp, color: colors.primary }]}>
-            THE TUNE CRATE // ARCHIVE & REPERTOIRE
-          </Text>
-          <Text style={[styles.headerTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-            VAULT CATALOG
-          </Text>
-          <Text style={[styles.statLine, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-            {rotationCount} IN ROTATION • {exercises.length} TOTAL IN VAULT
-          </Text>
-        </View>
+        <CreamBlock>
+          {/* Row 1: Badges on Left, Rotation Stamp on Right */}
+          <View style={styles.cardRow1}>
+            <View style={styles.badgeGroup}>
+              <StampBadge label={ex.context} type={ex.context} />
+              <StampBadge label={ex.category.replace('_', ' ')} type={ex.category} />
 
-        <StampButton
-          label="+ INGEST DRILL"
-          variant="primary"
-          size="sm"
-          onPress={openAddModal}
-        />
-      </View>
+              {ex.usesActiveStandard && (
+                <View style={[styles.standardBadge, { backgroundColor: colors.secondary }]}>
+                  <Text style={[styles.badgeText, { fontFamily: typography.fontStamp, color: colors.cardSurface }]}>
+                    BOUND TO STD
+                  </Text>
+                </View>
+              )}
+            </View>
 
-      {/* Search Input */}
-      <View style={[styles.searchBox, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
-        <TextInput
-          placeholder="SEARCH TUNES, LICKS, OR CONCEPTS..."
-          placeholderTextColor={colors.inkMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          style={[styles.searchInput, { fontFamily: typography.fontMono, color: colors.inkBlack }]}
-        />
-      </View>
-
-      {/* Compact 2-Tier Filter Strip */}
-      <View style={styles.filterStripContainer}>
-        {/* Tier 1: Rotation Status Filter */}
-        <View style={styles.filterRow}>
-          {[
-            { key: 'ALL', label: `ALL (${exercises.length})` },
-            { key: 'ACTIVE', label: `ACTIVE (${rotationCount})` },
-            { key: 'VAULT', label: `VAULT (${vaultedCount})` },
-          ].map((item) => (
             <Pressable
-              key={item.key}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setSelectedRotationFilter(item.key as any);
-              }}
+              accessibilityLabel={`Toggle rotation for ${ex.title}`}
+              accessibilityRole="button"
+              onPress={() => handleToggleRotation(ex.id, ex.inRotation)}
               style={[
-                styles.filterTab,
+                styles.rotationStamp,
                 {
+                  backgroundColor: ex.inRotation ? colors.secondary : colors.cardSurface,
                   borderColor: colors.inkBlack,
-                  backgroundColor:
-                    selectedRotationFilter === item.key ? colors.primary : colors.cardSurface,
                 },
               ]}
             >
               <Text
                 style={[
-                  styles.filterTabText,
+                  styles.rotationStampText,
                   {
                     fontFamily: typography.fontStamp,
-                    color:
-                      selectedRotationFilter === item.key ? colors.cardSurface : colors.inkBlack,
+                    color: ex.inRotation ? colors.cardSurface : colors.inkBlack,
                   },
                 ]}
               >
-                {item.label}
+                {ex.inRotation
+                  ? `IN ROTATION • ${stats.currentStreakLabel} ✓`
+                  : `VAULTED • ${stats.currentStreakLabel}`}
               </Text>
             </Pressable>
-          ))}
-        </View>
-
-        {/* Tier 2: Focus & Category Sub-Filters */}
-        <View style={styles.subFilterRow}>
-          <View style={styles.contextPillGroup}>
-            {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
-              <Pressable
-                key={ctx}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedContext(ctx);
-                }}
-                style={[
-                  styles.subFilterPill,
-                  {
-                    borderColor: colors.inkBlack,
-                    backgroundColor:
-                      selectedContext === ctx ? colors.secondary : colors.recessedSurface,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.subFilterText,
-                    {
-                      fontFamily: typography.fontStamp,
-                      color: selectedContext === ctx ? colors.cardSurface : colors.inkBlack,
-                    },
-                  ]}
-                >
-                  {ctx}
-                </Text>
-              </Pressable>
-            ))}
           </View>
 
-          <View style={styles.categoryPillGroup}>
-            {[
-              { key: 'ALL', label: 'ALL CAT' },
-              { key: 'NEW_CONCEPT', label: 'NEW' },
-              { key: 'TRANSCRIBING', label: 'TRANS' },
-              { key: 'MAINTENANCE', label: 'MAINT' },
-            ].map((cat) => (
-              <Pressable
-                key={cat.key}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedCategory(cat.key as any);
-                }}
-                style={[
-                  styles.subFilterPill,
-                  {
-                    borderColor: colors.inkBlack,
-                    backgroundColor:
-                      selectedCategory === cat.key ? colors.tertiary : colors.recessedSurface,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.subFilterText,
-                    {
-                      fontFamily: typography.fontStamp,
-                      color: selectedCategory === cat.key ? colors.cardSurface : colors.inkBlack,
-                    },
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-              </Pressable>
-            ))}
+          {/* Row 2: Drill Title + 1-Tap Quick Shed Action */}
+          <View style={styles.cardRow2}>
+            <Text
+              style={[
+                styles.drillTitle,
+                { fontFamily: typography.fontDisplay, color: colors.inkBlack, flex: 1 },
+              ]}
+              numberOfLines={isExpanded ? undefined : 2}
+            >
+              {ex.title}
+            </Text>
+            <View style={{ marginLeft: 8 }}>
+              <StampButton
+                label="▶ SHED"
+                variant="primary"
+                size="sm"
+                onPress={() => onSelectExercise(ex)}
+              />
+            </View>
           </View>
-        </View>
-      </View>
 
-      {/* De-Cluttered Collapsible Index Cards */}
-      {filteredExercises.map((ex) => {
-        const stats = getRotationTenureStats(ex);
-        const isExpanded = !!expandedCardIds[ex.id];
+          {/* Row 3: Compact Telemetry Bar + Expandable Indicator */}
+          <Pressable
+            accessibilityLabel={`Toggle details for ${ex.title}`}
+            accessibilityRole="button"
+            onPress={() => toggleCardExpansion(ex.id)}
+            style={styles.cardRow3}
+          >
+            <Text style={[styles.telemetryText, { fontFamily: typography.fontMono, color: colors.inkBlack }]}>
+              ⏱ {ex.durationMinutes}m • ⚡ {ex.intensity}/5 • ♩ {ex.currentBpm} BPM
+              {ex.isKeyBased ? ` • KEYS ${ex.masteredKeys.length}/12` : ''}
+            </Text>
+            <Text style={[styles.detailsToggleText, { fontFamily: typography.fontStamp, color: colors.primary }]}>
+              [ {isExpanded ? 'DETAILS ▲' : 'DETAILS ▼'} ]
+            </Text>
+          </Pressable>
 
-        return (
-          <CreamBlock key={ex.id}>
-            {/* Row 1: Badges on Left, Rotation Stamp with Integrated Streak on Right */}
-            <View style={styles.cardRow1}>
-              <View style={styles.badgeGroup}>
-                <StampBadge label={ex.context} type={ex.context} />
-                <StampBadge label={ex.category.replace('_', ' ')} type={ex.category} />
+          {/* Expanded Drawer */}
+          {isExpanded && (
+            <View style={[styles.expandedDrawer, { borderTopColor: colors.recessedSurface }]}>
+              <Text style={[styles.expandedDesc, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+                {ex.description}
+              </Text>
 
-                {ex.usesActiveStandard && (
-                  <View style={[styles.standardBadge, { backgroundColor: colors.secondary }]}>
-                    <Text style={[styles.badgeText, { fontFamily: typography.fontStamp, color: colors.cardSurface }]}>
-                      BOUND TO STD
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Inline Rotation Stamp with Live Tenure */}
-              <Pressable
-                onPress={() => handleToggleRotation(ex.id, ex.inRotation)}
+              <View
                 style={[
-                  styles.rotationStamp,
-                  {
-                    backgroundColor: ex.inRotation ? colors.secondary : colors.cardSurface,
-                    borderColor: colors.inkBlack,
-                  },
+                  styles.ledgerBox,
+                  { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.rotationStampText,
-                    {
-                      fontFamily: typography.fontStamp,
-                      color: ex.inRotation ? colors.cardSurface : colors.inkBlack,
-                    },
-                  ]}
-                >
-                  {ex.inRotation
-                    ? `IN ROTATION • ${stats.currentStreakLabel} ✓`
-                    : `VAULTED • ${stats.currentStreakLabel}`}
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* Row 2: Drill Title + 1-Tap Quick Shed Action */}
-            <View style={styles.cardRow2}>
-              <Text
-                style={[
-                  styles.drillTitle,
-                  { fontFamily: typography.fontDisplay, color: colors.inkBlack, flex: 1 },
-                ]}
-                numberOfLines={isExpanded ? undefined : 2}
-              >
-                {ex.title}
-              </Text>
-              <View style={{ marginLeft: 8 }}>
-                <StampButton
-                  label="▶ SHED"
-                  variant="primary"
-                  size="sm"
-                  onPress={() => onSelectExercise(ex)}
-                />
-              </View>
-            </View>
-
-            {/* Row 3: Compact Single-Line Telemetry Bar + Expandable Indicator */}
-            <Pressable onPress={() => toggleCardExpansion(ex.id)} style={styles.cardRow3}>
-              <Text style={[styles.telemetryText, { fontFamily: typography.fontMono, color: colors.inkBlack }]}>
-                ⏱ {ex.durationMinutes}m • ⚡ {ex.intensity}/5 • ♩ {ex.currentBpm} BPM
-                {ex.isKeyBased ? ` • KEYS ${ex.masteredKeys.length}/12` : ''}
-              </Text>
-              <Text style={[styles.detailsToggleText, { fontFamily: typography.fontStamp, color: colors.primary }]}>
-                [ {isExpanded ? 'DETAILS ▲' : 'DETAILS ▼'} ]
-              </Text>
-            </Pressable>
-
-            {/* Expanded Drawer: Full Description, Rotation Ledger Box & Accidental-Safe Actions */}
-            {isExpanded && (
-              <View style={[styles.expandedDrawer, { borderTopColor: colors.recessedSurface }]}>
-                <Text style={[styles.expandedDesc, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-                  {ex.description}
-                </Text>
-
-                {/* Rotation Ledger Box: Active Time vs. Vault Time Telemetry */}
-                <View
-                  style={[
-                    styles.ledgerBox,
-                    { backgroundColor: colors.recessedSurface, borderColor: colors.inkBlack },
-                  ]}
-                >
-                  <View style={styles.ledgerHeaderRow}>
-                    <Text style={[styles.ledgerTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-                      ROTATION LEDGER // LIFETIME TELEMETRY
-                    </Text>
-                    <Text style={[styles.ledgerRatioText, { fontFamily: typography.fontMonoBold, color: colors.secondary }]}>
-                      ACTIVE RATIO: {stats.activeRatioPercent}%
-                    </Text>
-                  </View>
-
-                  {/* Studio Ratio Meter Bar */}
-                  <View
-                    style={[
-                      styles.ratioTrack,
-                      { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.ratioFill,
-                        {
-                          width: `${stats.activeRatioPercent}%`,
-                          backgroundColor: colors.secondary,
-                        },
-                      ]}
-                    />
-                  </View>
-
-                  <Text style={[styles.ledgerStatsText, { fontFamily: typography.fontMono, color: colors.inkBlack }]}>
-                    ACTIVE: {stats.totalInRotationDays}d total ({stats.currentStreakDays}d streak)  //  VAULTED: {stats.totalOutRotationDays}d total
+                <View style={styles.ledgerHeaderRow}>
+                  <Text style={[styles.ledgerTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+                    ROTATION LEDGER // LIFETIME TELEMETRY
+                  </Text>
+                  <Text style={[styles.ledgerRatioText, { fontFamily: typography.fontMonoBold, color: colors.secondary }]}>
+                    ACTIVE RATIO: {stats.activeRatioPercent}%
                   </Text>
                 </View>
 
-                {/* Secondary Actions Row tucked safely into drawer */}
-                <View style={styles.expandedActionRow}>
-                  <StampButton
-                    label="✎ EDIT DRILL"
-                    variant="tertiary"
-                    size="sm"
-                    onPress={() => openEditModal(ex)}
-                  />
-                  <StampButton
-                    label="DELETE FROM VAULT"
-                    variant="tertiary"
-                    size="sm"
-                    onPress={() => handleDelete(ex.id)}
+                <View
+                  style={[
+                    styles.ratioTrack,
+                    { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.ratioFill,
+                      {
+                        width: `${stats.activeRatioPercent}%`,
+                        backgroundColor: colors.secondary,
+                      },
+                    ]}
                   />
                 </View>
+
+                <Text style={[styles.ledgerStatsText, { fontFamily: typography.fontMono, color: colors.inkBlack }]}>
+                  ACTIVE: {stats.totalInRotationDays}d total ({stats.currentStreakDays}d streak) // VAULTED: {stats.totalOutRotationDays}d total
+                </Text>
+              </View>
+
+              <View style={styles.expandedActionRow}>
+                <StampButton
+                  label="✎ EDIT DRILL"
+                  variant="tertiary"
+                  size="sm"
+                  onPress={() => openEditModal(ex)}
+                />
+                <StampButton
+                  label="DELETE FROM VAULT"
+                  variant="tertiary"
+                  size="sm"
+                  onPress={() => handleDelete(ex.id)}
+                />
+              </View>
+            </View>
+          )}
+        </CreamBlock>
+      </View>
+    );
+  };
+
+  return (
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.canvasBg }]}
+      contentContainerStyle={isDesktop ? styles.desktopScrollContent : undefined}
+    >
+      <View style={isDesktop ? styles.desktopWorkspace : undefined}>
+        {/* Header Banner */}
+        <View
+          style={[
+            styles.headerBanner,
+            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+          ]}
+        >
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={[styles.headerSub, { fontFamily: typography.fontStamp, color: colors.primary }]}>
+              THE TUNE CRATE // ARCHIVE & REPERTOIRE
+            </Text>
+            <Text style={[styles.headerTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
+              VAULT CATALOG ({filteredExercises.length} SHOWN)
+            </Text>
+            <Text style={[styles.statLine, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+              {rotationCount} IN ROTATION • {exercises.length} TOTAL IN VAULT
+            </Text>
+          </View>
+
+          <StampButton
+            label="+ INGEST DRILL"
+            variant="primary"
+            size={isDesktop ? 'md' : 'sm'}
+            onPress={openAddModal}
+          />
+        </View>
+
+        {isDesktop ? (
+          /* ============================================================
+           * DESKTOP 2-PANE CATALOG WORKSTATION
+           * ============================================================ */
+          <View style={styles.desktopCrateBody}>
+            {/* Left Filter & Search Rail */}
+            <View style={styles.desktopFilterRail}>
+              <CreamBlock>
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 12,
+                    letterSpacing: 1.2,
+                    color: colors.inkBlack,
+                    marginBottom: 8,
+                  }}
+                >
+                  SEARCH & FILTER RACK
+                </Text>
+
+                <View
+                  style={[
+                    styles.searchBox,
+                    { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack, marginBottom: 14 },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="SEARCH TUNES, LICKS..."
+                    placeholderTextColor={colors.inkMuted}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    style={[styles.searchInput, { fontFamily: typography.fontMono, color: colors.inkBlack }]}
+                  />
+                </View>
+
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted }]}>
+                  ROTATION STATUS
+                </Text>
+                <View style={styles.railGroup}>
+                  {[
+                    { key: 'ALL', label: `ALL DRILLS (${exercises.length})` },
+                    { key: 'ACTIVE', label: `IN ROTATION (${rotationCount})` },
+                    { key: 'VAULT', label: `VAULTED (${vaultedCount})` },
+                  ].map((item) => (
+                    <Pressable
+                      key={item.key}
+                      accessibilityLabel={item.label}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedRotationFilter(item.key as any);
+                      }}
+                      style={[
+                        styles.railBtn,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            selectedRotationFilter === item.key ? colors.primary : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontStamp,
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                          color:
+                            selectedRotationFilter === item.key ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {item.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted }]}>
+                  MUSICAL CONTEXT
+                </Text>
+                <View style={styles.railGroup}>
+                  {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
+                    <Pressable
+                      key={ctx}
+                      accessibilityLabel={`Context filter ${ctx}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedContext(ctx);
+                      }}
+                      style={[
+                        styles.railBtn,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            selectedContext === ctx ? colors.secondary : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontStamp,
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                          color: selectedContext === ctx ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {ctx}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted }]}>
+                  DRILL CATEGORY
+                </Text>
+                <View style={styles.railGroup}>
+                  {[
+                    { key: 'ALL', label: 'ALL CATEGORIES' },
+                    { key: 'NEW_CONCEPT', label: 'NEW CONCEPT' },
+                    { key: 'TRANSCRIBING', label: 'TRANSCRIBING' },
+                    { key: 'MAINTENANCE', label: 'MAINTENANCE' },
+                  ].map((cat) => (
+                    <Pressable
+                      key={cat.key}
+                      accessibilityLabel={`Category filter ${cat.label}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedCategory(cat.key as any);
+                      }}
+                      style={[
+                        styles.railBtn,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            selectedCategory === cat.key ? colors.tertiary : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontStamp,
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                          color: selectedCategory === cat.key ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </CreamBlock>
+            </View>
+
+            {/* Right 2-Column Index Card Grid */}
+            <View style={styles.desktopCardsGrid}>
+              {filteredExercises.map(renderExerciseCard)}
+              {filteredExercises.length === 0 && (
+                <View style={styles.emptyContainer}>
+                  <Text
+                    style={{
+                      fontFamily: typography.fontDisplay,
+                      fontSize: 18,
+                      color: colors.textPrimary,
+                      textAlign: 'center',
+                    }}
+                  >
+                    No drills found matching this filter.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : (
+          /* ============================================================
+           * MOBILE SINGLE-COLUMN FILTER & LIST
+           * ============================================================ */
+          <>
+            <View style={[styles.searchBox, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
+              <TextInput
+                placeholder="SEARCH TUNES, LICKS, OR CONCEPTS..."
+                placeholderTextColor={colors.inkMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={[styles.searchInput, { fontFamily: typography.fontMono, color: colors.inkBlack }]}
+              />
+            </View>
+
+            <View style={styles.filterStripContainer}>
+              <View style={styles.filterRow}>
+                {[
+                  { key: 'ALL', label: `ALL (${exercises.length})` },
+                  { key: 'ACTIVE', label: `ACTIVE (${rotationCount})` },
+                  { key: 'VAULT', label: `VAULT (${vaultedCount})` },
+                ].map((item) => (
+                  <Pressable
+                    key={item.key}
+                    accessibilityLabel={item.label}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setSelectedRotationFilter(item.key as any);
+                    }}
+                    style={[
+                      styles.filterTab,
+                      {
+                        borderColor: colors.inkBlack,
+                        backgroundColor:
+                          selectedRotationFilter === item.key ? colors.primary : colors.cardSurface,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterTabText,
+                        {
+                          fontFamily: typography.fontStamp,
+                          color:
+                            selectedRotationFilter === item.key ? colors.cardSurface : colors.inkBlack,
+                        },
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.subFilterRow}>
+                <View style={styles.contextPillGroup}>
+                  {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
+                    <Pressable
+                      key={ctx}
+                      accessibilityLabel={`Context ${ctx}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedContext(ctx);
+                      }}
+                      style={[
+                        styles.subFilterPill,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            selectedContext === ctx ? colors.secondary : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.subFilterText,
+                          {
+                            fontFamily: typography.fontStamp,
+                            color: selectedContext === ctx ? colors.cardSurface : colors.inkBlack,
+                          },
+                        ]}
+                      >
+                        {ctx}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={styles.categoryPillGroup}>
+                  {[
+                    { key: 'ALL', label: 'ALL CAT' },
+                    { key: 'NEW_CONCEPT', label: 'NEW' },
+                    { key: 'TRANSCRIBING', label: 'TRANS' },
+                    { key: 'MAINTENANCE', label: 'MAINT' },
+                  ].map((cat) => (
+                    <Pressable
+                      key={cat.key}
+                      accessibilityLabel={`Category ${cat.label}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setSelectedCategory(cat.key as any);
+                      }}
+                      style={[
+                        styles.subFilterPill,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            selectedCategory === cat.key ? colors.tertiary : colors.recessedSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.subFilterText,
+                          {
+                            fontFamily: typography.fontStamp,
+                            color: selectedCategory === cat.key ? colors.cardSurface : colors.inkBlack,
+                          },
+                        ]}
+                      >
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            {filteredExercises.map(renderExerciseCard)}
+
+            {filteredExercises.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Text
+                  style={{
+                    fontFamily: typography.fontDisplay,
+                    fontSize: 16,
+                    color: colors.textPrimary,
+                    textAlign: 'center',
+                  }}
+                >
+                  No drills found matching this filter.
+                </Text>
               </View>
             )}
-          </CreamBlock>
-        );
-      })}
+          </>
+        )}
+      </View>
 
-      {filteredExercises.length === 0 && (
-        <View style={styles.emptyContainer}>
-          <Text style={[{ fontFamily: typography.fontDisplay, fontSize: 16, color: colors.textPrimary, textAlign: 'center' }]}>
-            No drills found matching this filter.
-          </Text>
-        </View>
-      )}
-
-      {/* Unified Ingest Modal: [ SINGLE DRILL ] vs [ BULK PASTE ] */}
-      <Modal visible={showModal} animationType="slide" transparent>
+      {/* Unified Ingest Modal (Constrained width on Desktop) */}
+      <Modal visible={showModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
-            {/* Top Mode Switcher (Visible only when creating new) */}
+          <View
+            style={[
+              styles.modalCard,
+              isDesktop && styles.modalCardDesktop,
+              { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
+            ]}
+          >
             {editingExerciseId ? (
               <Text style={[styles.modalHeader, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
                 EDIT VAULT DRILL
@@ -550,6 +761,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
             ) : (
               <View style={styles.modalModeSwitcher}>
                 <Pressable
+                  accessibilityLabel="Single Drill Mode"
+                  accessibilityRole="button"
                   onPress={() => setModalMode('SINGLE')}
                   style={[
                     styles.modeSwitchBtn,
@@ -574,6 +787,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 </Pressable>
 
                 <Pressable
+                  accessibilityLabel="Bulk Paste Mode"
+                  accessibilityRole="button"
                   onPress={() => setModalMode('BULK')}
                   style={[
                     styles.modeSwitchBtn,
@@ -599,7 +814,6 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               </View>
             )}
 
-            {/* SINGLE DRILL FORM */}
             {modalMode === 'SINGLE' && (
               <View>
                 <TextInput
@@ -607,7 +821,15 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   placeholderTextColor={colors.inkMuted}
                   value={formTitle}
                   onChangeText={setFormTitle}
-                  style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                  style={[
+                    styles.modalInput,
+                    {
+                      fontFamily: typography.fontMono,
+                      borderColor: colors.inkBlack,
+                      backgroundColor: colors.cardSurface,
+                      color: colors.textDark,
+                    },
+                  ]}
                 />
 
                 <TextInput
@@ -616,34 +838,86 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   value={formDesc}
                   onChangeText={setFormDesc}
                   multiline
-                  style={[styles.modalInput, { fontFamily: typography.fontMono, borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark, height: 50 }]}
+                  style={[
+                    styles.modalInput,
+                    {
+                      fontFamily: typography.fontMono,
+                      borderColor: colors.inkBlack,
+                      backgroundColor: colors.cardSurface,
+                      color: colors.textDark,
+                      height: 60,
+                    },
+                  ]}
                 />
 
                 <View style={styles.modalRow}>
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>CONTEXT:</Text>
+                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+                    CONTEXT:
+                  </Text>
                   <Pressable
+                    accessibilityLabel="Context Soloing"
+                    accessibilityRole="button"
                     onPress={() => setFormContext('SOLOING')}
-                    style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, formContext === 'SOLOING' && { backgroundColor: colors.primary }]}
+                    style={[
+                      styles.smallToggle,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                      formContext === 'SOLOING' && { backgroundColor: colors.primary },
+                    ]}
                   >
-                    <Text style={[styles.toggleText, { color: formContext === 'SOLOING' ? colors.cardSurface : colors.inkBlack }]}>SOLOING</Text>
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        { color: formContext === 'SOLOING' ? colors.cardSurface : colors.inkBlack },
+                      ]}
+                    >
+                      SOLOING
+                    </Text>
                   </Pressable>
                   <Pressable
+                    accessibilityLabel="Context Comping"
+                    accessibilityRole="button"
                     onPress={() => setFormContext('COMPING')}
-                    style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, formContext === 'COMPING' && { backgroundColor: colors.tertiary }]}
+                    style={[
+                      styles.smallToggle,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                      formContext === 'COMPING' && { backgroundColor: colors.tertiary },
+                    ]}
                   >
-                    <Text style={[styles.toggleText, { color: formContext === 'COMPING' ? colors.cardSurface : colors.inkBlack }]}>COMPING</Text>
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        { color: formContext === 'COMPING' ? colors.cardSurface : colors.inkBlack },
+                      ]}
+                    >
+                      COMPING
+                    </Text>
                   </Pressable>
                 </View>
 
                 <View style={styles.modalRow}>
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>CATEGORY:</Text>
+                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+                    CATEGORY:
+                  </Text>
                   {(['NEW_CONCEPT', 'TRANSCRIBING', 'MAINTENANCE'] as const).map((cat) => (
                     <Pressable
                       key={cat}
+                      accessibilityLabel={`Category ${cat}`}
+                      accessibilityRole="button"
                       onPress={() => setFormCategory(cat)}
-                      style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, formCategory === cat && { backgroundColor: colors.secondary }]}
+                      style={[
+                        styles.smallToggle,
+                        { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                        formCategory === cat && { backgroundColor: colors.secondary },
+                      ]}
                     >
-                      <Text style={[styles.toggleText, { color: formCategory === cat ? colors.cardSurface : colors.inkBlack }]}>{cat.split('_')[0]}</Text>
+                      <Text
+                        style={[
+                          styles.toggleText,
+                          { color: formCategory === cat ? colors.cardSurface : colors.inkBlack },
+                        ]}
+                      >
+                        {cat.split('_')[0]}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>
@@ -655,7 +929,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={formDuration}
                       onChangeText={setFormDuration}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                   <View style={styles.inputCol}>
@@ -664,7 +945,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={formIntensity}
                       onChangeText={setFormIntensity}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                   <View style={styles.inputCol}>
@@ -673,7 +961,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={formBpm}
                       onChangeText={setFormBpm}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                   <View style={styles.inputCol}>
@@ -682,16 +977,27 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={formPriority}
                       onChangeText={setFormPriority}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                 </View>
 
                 <Pressable
+                  accessibilityLabel="Toggle 12-Key Circle of Fifths"
+                  accessibilityRole="button"
                   onPress={() => setFormIsKeyBased(!formIsKeyBased)}
                   style={styles.keyBasedRow}
                 >
-                  <Text style={[styles.checkbox, { color: colors.inkBlack }]}>{formIsKeyBased ? '[✓]' : '[ ]'}</Text>
+                  <Text style={[styles.checkbox, { color: colors.inkBlack }]}>
+                    {formIsKeyBased ? '[✓]' : '[ ]'}
+                  </Text>
                   <Text style={[styles.keyBasedLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
                     ENABLE 12-KEY CIRCLE OF FIFTHS
                   </Text>
@@ -712,7 +1018,6 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               </View>
             )}
 
-            {/* BULK PASTE FORM */}
             {modalMode === 'BULK' && !editingExerciseId && (
               <View>
                 <View style={styles.bulkTitleRow}>
@@ -720,8 +1025,13 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                     BATCH DRILL INGESTION
                   </Text>
                   <Pressable
+                    accessibilityLabel="Load sample bulk pack"
+                    accessibilityRole="button"
                     onPress={() => setBulkRawText(SAMPLE_BULK_PACK)}
-                    style={[styles.samplePackBtn, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }]}
+                    style={[
+                      styles.samplePackBtn,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                    ]}
                   >
                     <Text style={{ fontFamily: typography.fontStamp, color: colors.primary, fontSize: 10 }}>
                       + LOAD SAMPLE PACK
@@ -752,34 +1062,86 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   ]}
                 />
 
-                {/* Batch Defaults */}
-                <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack, marginBottom: 4 }]}>
+                <Text
+                  style={[
+                    styles.modalLabel,
+                    { fontFamily: typography.fontStamp, color: colors.inkBlack, marginBottom: 4 },
+                  ]}
+                >
                   BATCH DEFAULTS:
                 </Text>
 
                 <View style={styles.modalRow}>
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>CTX:</Text>
+                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+                    CTX:
+                  </Text>
                   <Pressable
+                    accessibilityLabel="Bulk default context Soloing"
+                    accessibilityRole="button"
                     onPress={() => setBulkContext('SOLOING')}
-                    style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, bulkContext === 'SOLOING' && { backgroundColor: colors.primary }]}
+                    style={[
+                      styles.smallToggle,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                      bulkContext === 'SOLOING' && { backgroundColor: colors.primary },
+                    ]}
                   >
-                    <Text style={[styles.toggleText, { color: bulkContext === 'SOLOING' ? colors.cardSurface : colors.inkBlack }]}>SOLO</Text>
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        { color: bulkContext === 'SOLOING' ? colors.cardSurface : colors.inkBlack },
+                      ]}
+                    >
+                      SOLO
+                    </Text>
                   </Pressable>
                   <Pressable
+                    accessibilityLabel="Bulk default context Comping"
+                    accessibilityRole="button"
                     onPress={() => setBulkContext('COMPING')}
-                    style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, bulkContext === 'COMPING' && { backgroundColor: colors.tertiary }]}
+                    style={[
+                      styles.smallToggle,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                      bulkContext === 'COMPING' && { backgroundColor: colors.tertiary },
+                    ]}
                   >
-                    <Text style={[styles.toggleText, { color: bulkContext === 'COMPING' ? colors.cardSurface : colors.inkBlack }]}>COMP</Text>
+                    <Text
+                      style={[
+                        styles.toggleText,
+                        { color: bulkContext === 'COMPING' ? colors.cardSurface : colors.inkBlack },
+                      ]}
+                    >
+                      COMP
+                    </Text>
                   </Pressable>
 
-                  <Text style={[styles.modalLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack, marginLeft: 6 }]}>CAT:</Text>
+                  <Text
+                    style={[
+                      styles.modalLabel,
+                      { fontFamily: typography.fontStamp, color: colors.inkBlack, marginLeft: 6 },
+                    ]}
+                  >
+                    CAT:
+                  </Text>
                   {(['NEW_CONCEPT', 'TRANSCRIBING', 'MAINTENANCE'] as const).map((cat) => (
                     <Pressable
                       key={cat}
+                      accessibilityLabel={`Bulk default category ${cat}`}
+                      accessibilityRole="button"
                       onPress={() => setBulkCategory(cat)}
-                      style={[styles.smallToggle, { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface }, bulkCategory === cat && { backgroundColor: colors.secondary }]}
+                      style={[
+                        styles.smallToggle,
+                        { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                        bulkCategory === cat && { backgroundColor: colors.secondary },
+                      ]}
                     >
-                      <Text style={[styles.toggleText, { color: bulkCategory === cat ? colors.cardSurface : colors.inkBlack }]}>{cat.split('_')[0]}</Text>
+                      <Text
+                        style={[
+                          styles.toggleText,
+                          { color: bulkCategory === cat ? colors.cardSurface : colors.inkBlack },
+                        ]}
+                      >
+                        {cat.split('_')[0]}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>
@@ -791,7 +1153,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={bulkDuration}
                       onChangeText={setBulkDuration}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                   <View style={styles.inputCol}>
@@ -800,7 +1169,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={bulkIntensity}
                       onChangeText={setBulkIntensity}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                   <View style={styles.inputCol}>
@@ -809,27 +1185,42 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       value={bulkBpm}
                       onChangeText={setBulkBpm}
                       keyboardType="numeric"
-                      style={[styles.numericInput, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface, color: colors.textDark }]}
+                      style={[
+                        styles.numericInput,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor: colors.cardSurface,
+                          color: colors.textDark,
+                        },
+                      ]}
                     />
                   </View>
                 </View>
 
                 <View style={styles.bulkCheckboxesRow}>
                   <Pressable
+                    accessibilityLabel="Toggle start in rotation for bulk"
+                    accessibilityRole="button"
                     onPress={() => setBulkInRotation(!bulkInRotation)}
                     style={styles.keyBasedRow}
                   >
-                    <Text style={[styles.checkbox, { color: colors.inkBlack }]}>{bulkInRotation ? '[✓]' : '[ ]'}</Text>
+                    <Text style={[styles.checkbox, { color: colors.inkBlack }]}>
+                      {bulkInRotation ? '[✓]' : '[ ]'}
+                    </Text>
                     <Text style={[styles.keyBasedLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
                       START IN ROTATION
                     </Text>
                   </Pressable>
 
                   <Pressable
+                    accessibilityLabel="Toggle 12-key for all bulk drills"
+                    accessibilityRole="button"
                     onPress={() => setBulkIsKeyBased(!bulkIsKeyBased)}
                     style={styles.keyBasedRow}
                   >
-                    <Text style={[styles.checkbox, { color: colors.inkBlack }]}>{bulkIsKeyBased ? '[✓]' : '[ ]'}</Text>
+                    <Text style={[styles.checkbox, { color: colors.inkBlack }]}>
+                      {bulkIsKeyBased ? '[✓]' : '[ ]'}
+                    </Text>
                     <Text style={[styles.keyBasedLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
                       12-KEY FOR ALL
                     </Text>
@@ -860,13 +1251,57 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 14 },
+  /* Desktop Layout Styles */
+  desktopScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  desktopWorkspace: {
+    width: '100%',
+    maxWidth: 1240,
+  },
+  desktopCrateBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
+    marginTop: 6,
+  },
+  desktopFilterRail: {
+    width: 270,
+  },
+  railLabel: {
+    fontSize: 10,
+    letterSpacing: 1.2,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  railGroup: {
+    gap: 6,
+    marginBottom: 12,
+  },
+  railBtn: {
+    borderWidth: 1.5,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  desktopCardsGrid: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  desktopCardCell: {
+    width: '48.8%',
+  },
+  /* Header & Shared Styles */
   headerBanner: {
     borderWidth: 2,
-    padding: 12,
+    padding: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   headerSub: { fontSize: 11, letterSpacing: 1.2 },
   headerTitle: { fontSize: 22, marginTop: 2 },
@@ -956,7 +1391,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 2,
+    marginVertical: 4,
   },
   drillTitle: {
     fontSize: 17,
@@ -1022,18 +1457,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyContainer: {
+    width: '100%',
     padding: 30,
     alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 16,
   },
   modalCard: {
+    width: '100%',
     borderWidth: 3,
-    padding: 14,
+    padding: 16,
+  },
+  modalCardDesktop: {
+    maxWidth: 560,
   },
   modalHeader: {
     fontSize: 18,
@@ -1060,7 +1501,7 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     borderWidth: 1.5,
-    padding: 7,
+    padding: 8,
     fontSize: 12,
     marginBottom: 8,
   },
@@ -1078,7 +1519,7 @@ const styles = StyleSheet.create({
   smallToggle: {
     borderWidth: 1,
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 4,
   },
   toggleText: {
     fontSize: 9,
@@ -1100,7 +1541,7 @@ const styles = StyleSheet.create({
   },
   numericInput: {
     borderWidth: 1.5,
-    padding: 5,
+    padding: 6,
     fontSize: 11,
     textAlign: 'center',
   },
@@ -1127,7 +1568,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 8,
-    marginTop: 4,
+    marginTop: 6,
   },
   bulkTitleRow: {
     flexDirection: 'row',

@@ -1,0 +1,22 @@
+Starting project at /app
+Starting Metro Bundler
+
+Waiting on http://localhost:8081
+
+An update for expo is available: 57.0.28 → ~57.0.30
+5 other packages may need updating. Run npx expo install --check for details.
+Logs for your project will appear below.
+Web Bundled 13843ms index.ts (1079 modules)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"}
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  LOG  [AlarmManager] Alarms are optimized for iOS & Android native lock screens.
+Web Bundled 60ms index.ts (1 module)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"}
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web  LOG  [AlarmManager] Alarms are optimized for iOS & Android native lock screens.

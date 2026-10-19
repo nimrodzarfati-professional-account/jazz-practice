@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { ActiveStandard, MusicalContext, ScoredExercise } from '../types/models';
 import { CreamBlock } from '../components/CreamBlock';
 import { StudioFader } from '../components/StudioFader';
@@ -65,11 +66,11 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
   onOpenRotateStandardModal,
 }) => {
   const { colors, typography } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
   const [alarmScheduled, setAlarmScheduled] = useState(false);
 
   const handleSetAlarm = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // Schedule alarm for tomorrow morning 08:00
     const target = new Date();
     target.setDate(target.getDate() + 1);
     target.setHours(8, 0, 0, 0);
@@ -84,200 +85,258 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
     0
   );
 
-  return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
-      {/* 1-2 Week Active Standard Strip */}
-      <ActiveStandardBanner
-        standard={activeStandard}
-        onPressRotate={onOpenRotateStandardModal}
-      />
+  const renderMixingConsoleCard = () => (
+    <CreamBlock>
+      <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
+        STUDIO CALL SHEET // MIXING CONSOLE
+      </Text>
+      <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+        Dial in your session window and mental stamina to assemble today’s optimal routine.
+      </Text>
 
-      {/* Pre-Session Booking Faders */}
-      <CreamBlock>
-        <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-          STUDIO CALL SHEET // MIXING CONSOLE
-        </Text>
-        <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-          Dial in your session window and mental stamina to assemble today’s optimal routine.
-        </Text>
-
-        {/* 1-Tap Studio Presets */}
-        <View style={styles.presetsRow}>
-          {SESSION_PRESETS.map((preset) => {
-            const isSelected = availableMinutes === preset.minutes && intensity === preset.intensity;
-            return (
-              <Pressable
-                key={preset.label}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onChangeMinutes(preset.minutes);
-                  onChangeIntensity(preset.intensity);
-                }}
-                style={[
-                  styles.presetBtn,
-                  {
-                    borderColor: colors.inkBlack,
-                    backgroundColor: isSelected ? colors.primary : colors.recessedSurface,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.presetBtnText,
-                    {
-                      fontFamily: typography.fontStamp,
-                      color: isSelected ? colors.cardSurface : colors.inkBlack,
-                    },
-                  ]}
-                >
-                  {preset.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.fadersRow}>
-          <StudioFader
-            label="SESSION TIME"
-            value={availableMinutes}
-            min={15}
-            max={120}
-            step={5}
-            unit="min"
-            accentColor={colors.primary}
-            onChange={onChangeMinutes}
-          />
-
-          <StudioFader
-            label="CHOP BATTERY"
-            value={intensity}
-            min={1}
-            max={5}
-            step={1}
-            unit="/ 5"
-            accentColor={colors.tertiary}
-            onChange={onChangeIntensity}
-          />
-        </View>
-
-        {/* Context Selector */}
-        <View style={[styles.contextFilterRow, { borderTopColor: colors.recessedSurface }]}>
-          <Text style={[styles.filterLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-            TARGET FOCUS:
-          </Text>
-          {(['ALL', 'SOLOING', 'COMPING'] as const).map((filter) => (
+      {/* 1-Tap Studio Presets */}
+      <View style={styles.presetsRow}>
+        {SESSION_PRESETS.map((preset) => {
+          const isSelected = availableMinutes === preset.minutes && intensity === preset.intensity;
+          return (
             <Pressable
-              key={filter}
+              key={preset.label}
+              accessibilityLabel={`Preset ${preset.label}`}
+              accessibilityRole="button"
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                onChangeContextFilter(filter);
+                onChangeMinutes(preset.minutes);
+                onChangeIntensity(preset.intensity);
               }}
               style={[
-                styles.filterPill,
+                styles.presetBtn,
                 {
                   borderColor: colors.inkBlack,
-                  backgroundColor: contextFilter === filter ? colors.primary : colors.cardSurface,
+                  backgroundColor: isSelected ? colors.primary : colors.recessedSurface,
                 },
               ]}
             >
               <Text
                 style={[
-                  styles.filterPillText,
+                  styles.presetBtnText,
                   {
                     fontFamily: typography.fontStamp,
-                    color: contextFilter === filter ? colors.cardSurface : colors.inkBlack,
+                    color: isSelected ? colors.cardSurface : colors.inkBlack,
                   },
                 ]}
               >
-                {filter}
+                {preset.label}
               </Text>
             </Pressable>
-          ))}
-        </View>
-      </CreamBlock>
+          );
+        })}
+      </View>
 
-      {/* Assembled Knapsack Routine Preview */}
-      <CreamBlock>
-        <View style={[styles.queueHeader, { borderBottomColor: colors.inkBlack }]}>
-          <Text style={[styles.queueTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-            SCHEDULED ROUTINE ({previewQueue.length} BLOCKS • {totalAllocatedMinutes}m)
-          </Text>
-          <Text style={[styles.queueSubtitle, { fontFamily: typography.fontMono, color: colors.secondary }]}>
-            Rotated & Decay-Weighted
-          </Text>
-        </View>
+      <View style={styles.fadersRow}>
+        <StudioFader
+          label="SESSION TIME"
+          value={availableMinutes}
+          min={15}
+          max={120}
+          step={5}
+          unit="min"
+          accentColor={colors.primary}
+          onChange={onChangeMinutes}
+        />
 
-        {previewQueue.map((item, idx) => (
-          <View
-            key={`${item.id}-${idx}`}
+        <StudioFader
+          label="CHOP BATTERY"
+          value={intensity}
+          min={1}
+          max={5}
+          step={1}
+          unit="/ 5"
+          accentColor={colors.tertiary}
+          onChange={onChangeIntensity}
+        />
+      </View>
+
+      {/* Context Selector */}
+      <View style={[styles.contextFilterRow, { borderTopColor: colors.recessedSurface }]}>
+        <Text style={[styles.filterLabel, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+          TARGET FOCUS:
+        </Text>
+        {(['ALL', 'SOLOING', 'COMPING'] as const).map((filter) => (
+          <Pressable
+            key={filter}
+            accessibilityLabel={`Target focus ${filter}`}
+            accessibilityRole="button"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onChangeContextFilter(filter);
+            }}
             style={[
-              styles.queueItemRow,
+              styles.filterPill,
               {
-                borderBottomColor: colors.recessedSurface,
-                backgroundColor: idx % 2 === 0 ? colors.cardSurface : colors.recessedSurface,
+                borderColor: colors.inkBlack,
+                backgroundColor: contextFilter === filter ? colors.primary : colors.cardSurface,
               },
             ]}
           >
-            <View style={styles.itemLeft}>
-              <Text style={[styles.itemNumber, { fontFamily: typography.fontMonoBold, color: colors.inkMuted }]}>
-                {String(idx + 1).padStart(2, '0')}
-              </Text>
-              <View style={{ flex: 1, paddingRight: 6 }}>
-                <Text style={[styles.itemTitle, { fontFamily: typography.fontHeading, color: colors.inkBlack }]}>
-                  {item.title}
-                </Text>
-                <View style={styles.badgesInline}>
-                  <StampBadge label={item.context} type={item.context} />
-                  <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
-                </View>
-                <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-                  Urgency: {item.urgencyScore}% • {formatUrgencyReason(item)}
-                </Text>
-              </View>
-            </View>
+            <Text
+              style={[
+                styles.filterPillText,
+                {
+                  fontFamily: typography.fontStamp,
+                  color: contextFilter === filter ? colors.cardSurface : colors.inkBlack,
+                },
+              ]}
+            >
+              {filter}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </CreamBlock>
+  );
 
-            <View style={[styles.durationBadge, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}>
-              <Text style={[styles.durationText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
-                {item.allocatedMinutes}m
+  const renderAlarmsCard = () => (
+    <CreamBlock>
+      <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
+        HARDWARE OS PRACTICE ALARMS
+      </Text>
+      <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+        Schedules native lock-screen alarms with warm Rhodes swell and self-healing skip recalculations.
+      </Text>
+
+      <View style={{ marginTop: 10 }}>
+        <StampButton
+          label={alarmScheduled ? '✓ ALARM ARMED FOR 08:00 AM' : '⏰ ARM NEXT MORNING ALARM (08:00 AM)'}
+          variant={alarmScheduled ? 'secondary' : 'tertiary'}
+          onPress={handleSetAlarm}
+        />
+      </View>
+    </CreamBlock>
+  );
+
+  const renderScheduledRoutineCard = () => (
+    <CreamBlock>
+      <View style={[styles.queueHeader, { borderBottomColor: colors.inkBlack }]}>
+        <Text style={[styles.queueTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
+          SCHEDULED ROUTINE ({previewQueue.length} BLOCKS • {totalAllocatedMinutes}m / {availableMinutes}m)
+        </Text>
+        <Text style={[styles.queueSubtitle, { fontFamily: typography.fontMono, color: colors.secondary }]}>
+          Rotated & Decay-Weighted
+        </Text>
+      </View>
+
+      {previewQueue.map((item, idx) => (
+        <View
+          key={`${item.id}-${idx}`}
+          style={[
+            styles.queueItemRow,
+            {
+              borderBottomColor: colors.recessedSurface,
+              backgroundColor: idx % 2 === 0 ? colors.cardSurface : colors.recessedSurface,
+            },
+          ]}
+        >
+          <View style={styles.itemLeft}>
+            <Text style={[styles.itemNumber, { fontFamily: typography.fontMonoBold, color: colors.inkMuted }]}>
+              {String(idx + 1).padStart(2, '0')}
+            </Text>
+            <View style={{ flex: 1, paddingRight: 6 }}>
+              <Text style={[styles.itemTitle, { fontFamily: typography.fontHeading, color: colors.inkBlack }]}>
+                {item.title}
+              </Text>
+              <View style={styles.badgesInline}>
+                <StampBadge label={item.context} type={item.context} />
+                <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
+              </View>
+              <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
+                Urgency: {item.urgencyScore}% • {formatUrgencyReason(item)}
               </Text>
             </View>
           </View>
-        ))}
 
-        <View style={{ marginTop: 14 }}>
-          <StampButton
-            label="▶ START SHED SESSION"
-            variant="primary"
-            size="lg"
-            onPress={onStartSession}
-          />
+          <View style={[styles.durationBadge, { borderColor: colors.inkBlack, backgroundColor: colors.cardSurface }]}>
+            <Text style={[styles.durationText, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
+              {item.allocatedMinutes}m
+            </Text>
+          </View>
         </View>
-      </CreamBlock>
+      ))}
 
-      {/* Hardware OS Alarms Section */}
-      <CreamBlock>
-        <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-          HARDWARE OS PRACTICE ALARMS
-        </Text>
-        <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-          Schedules native lock-screen alarms with warm Rhodes swell and self-healing skip recalculations.
-        </Text>
+      <View style={{ marginTop: 16 }}>
+        <StampButton
+          label="▶ START SHED SESSION"
+          variant="primary"
+          size="lg"
+          onPress={onStartSession}
+        />
+      </View>
+    </CreamBlock>
+  );
 
-        <View style={{ marginTop: 10 }}>
-          <StampButton
-            label={alarmScheduled ? '✓ ALARM ARMED FOR 08:00 AM' : '⏰ ARM NEXT MORNING ALARM (08:00 AM)'}
-            variant={alarmScheduled ? 'secondary' : 'tertiary'}
-            onPress={handleSetAlarm}
-          />
+  /* ============================================================
+   * DESKTOP / COMPUTER SIDE-BY-SIDE MIXING DESK & CLIPBOARD
+   * ============================================================ */
+  if (isDesktop) {
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.canvasBg }]}
+        contentContainerStyle={styles.desktopScrollContent}
+      >
+        <View style={styles.desktopWorkspace}>
+          <View style={styles.desktopColumns}>
+            <View style={styles.desktopLeftCol}>
+              {renderMixingConsoleCard()}
+              {renderAlarmsCard()}
+            </View>
+            <View style={styles.desktopRightCol}>
+              {renderScheduledRoutineCard()}
+            </View>
+          </View>
         </View>
-      </CreamBlock>
+      </ScrollView>
+    );
+  }
+
+  /* ============================================================
+   * MOBILE SINGLE-COLUMN STACK
+   * ============================================================ */
+  return (
+    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
+      <ActiveStandardBanner
+        standard={activeStandard}
+        onPressRotate={onOpenRotateStandardModal}
+      />
+      {renderMixingConsoleCard()}
+      {renderScheduledRoutineCard()}
+      {renderAlarmsCard()}
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 14 },
+  /* Desktop Layout Styles */
+  desktopScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  desktopWorkspace: {
+    width: '100%',
+    maxWidth: 1240,
+  },
+  desktopColumns: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 22,
+  },
+  desktopLeftCol: {
+    flex: 1,
+  },
+  desktopRightCol: {
+    flex: 1.35,
+  },
+  /* Shared & Mobile Styles */
   sectionTitle: {
     fontSize: 20,
     marginBottom: 4,
@@ -315,6 +374,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1.5,
     paddingTop: 10,
     marginTop: 6,
+    flexWrap: 'wrap',
   },
   filterLabel: {
     fontSize: 11,
@@ -348,8 +408,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
   },
   itemLeft: {
