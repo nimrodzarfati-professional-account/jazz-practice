@@ -50,6 +50,10 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
             <Pressable
               key={k}
               onPress={() => handlePress(k)}
+              accessibilityRole="button"
+              accessibilityLabel={`Key of ${k}`}
+              accessibilityState={{ checked: isStamped }}
+              accessibilityHint="Toggle mastery of this key"
               style={[
                 styles.cell,
                 {
