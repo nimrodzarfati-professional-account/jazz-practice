@@ -95,14 +95,12 @@ function AppContent() {
     setupAlarmChannel();
     refreshData();
 
-    // Hydrate from cloud DB (Source of Truth)
-    pullAllFromCloud().then((res) => {
-      if (res.success && res.count > 0) {
-        refreshData();
-      }
+    // Always hydrate from Supabase (Source of Truth); falls back to local mirror if offline
+    pullAllFromCloud().then(() => {
+      refreshData();
     });
 
-    // Subscribe to realtime multi-device updates
+    // Subscribe to realtime multi-device updates + foreground/online recovery
     const unsubscribe = subscribeToRealtimeChanges(() => {
       refreshData();
     });
