@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS public.exercises (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- Ensure columns exist if table was created in an earlier migration (non-destructive)
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS rotation_changed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now());
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS accumulated_in_rotation_ms BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS accumulated_out_rotation_ms BIGINT NOT NULL DEFAULT 0;
+
 -- 3. Practice Logs Table (Every Exercise Played Across Computer & Phone)
 CREATE TABLE IF NOT EXISTS public.practice_logs (
   id TEXT PRIMARY KEY NOT NULL,

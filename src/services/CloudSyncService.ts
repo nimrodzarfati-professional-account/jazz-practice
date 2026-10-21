@@ -819,5 +819,3 @@ registerCloudSyncHandlers({
     pushUserStateToCloud(state);
   },
 });
-
-});
