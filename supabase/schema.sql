@@ -1,9 +1,8 @@
 -- ==============================================================================
--- Shed Engine V2 — Supabase Cloud Realtime Database Schema & Security Policies
--- Paste this script into your Supabase Dashboard -> SQL Editor and tap RUN.
+-- Shed Engine V2 — Full Cross-Device Sync Schema (Run in Supabase SQL Editor)
 -- ==============================================================================
 
--- 1. Active Standard Table (1-2 Week Cycle)
+-- 1. Active Standard Table
 CREATE TABLE IF NOT EXISTS public.active_standard (
   id TEXT PRIMARY KEY NOT NULL DEFAULT 'std_1',
   title TEXT NOT NULL,
@@ -13,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.active_standard (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Exercises Table (In-Rotation & Repertoire Vault)
+-- 2. Exercises Table (In-Rotation & Vault)
 CREATE TABLE IF NOT EXISTS public.exercises (
   id TEXT PRIMARY KEY NOT NULL,
   title TEXT NOT NULL,
@@ -37,65 +36,68 @@ CREATE TABLE IF NOT EXISTS public.exercises (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- 3. Practice Sessions Table (Historical Logs)
-CREATE TABLE IF NOT EXISTS public.practice_sessions (
+-- 3. Practice Logs Table (Every Exercise Played Across Computer & Phone)
+CREATE TABLE IF NOT EXISTS public.practice_logs (
   id TEXT PRIMARY KEY NOT NULL,
-  available_minutes INTEGER NOT NULL,
-  intensity INTEGER NOT NULL CHECK(intensity BETWEEN 1 AND 5),
-  blocks_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-  scheduled_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  started_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  cancelled BOOLEAN NOT NULL DEFAULT false,
-  total_duration_minutes INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+  exercise_id TEXT NOT NULL,
+  exercise_title TEXT NOT NULL,
+  standard_title TEXT,
+  duration_minutes INTEGER NOT NULL DEFAULT 15,
+  bpm_achieved INTEGER NOT NULL DEFAULT 120,
+  mastered_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+  practiced_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- Indices for rapid querying
+-- 4. User Sync State Table (Call Sheet Faders, Active Queue Position, Metronome & Theme)
+CREATE TABLE IF NOT EXISTS public.user_sync_state (
+  id TEXT PRIMARY KEY NOT NULL DEFAULT 'state_1',
+  available_minutes INTEGER NOT NULL DEFAULT 30,
+  intensity INTEGER NOT NULL DEFAULT 3,
+  context_filter TEXT NOT NULL DEFAULT 'ALL',
+  active_queue_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  active_queue_index INTEGER NOT NULL DEFAULT 0,
+  metronome_feel TEXT NOT NULL DEFAULT 'BACKBEAT_2_4',
+  metronome_voice TEXT NOT NULL DEFAULT 'PENDULUM',
+  theme_mode TEXT NOT NULL DEFAULT 'default',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- Indices
 CREATE INDEX IF NOT EXISTS idx_exercises_rotation ON public.exercises(in_rotation);
-CREATE INDEX IF NOT EXISTS idx_exercises_category ON public.exercises(category);
-CREATE INDEX IF NOT EXISTS idx_exercises_context ON public.exercises(context);
+CREATE INDEX IF NOT EXISTS idx_practice_logs_practiced_at ON public.practice_logs(practiced_at DESC);
+CREATE INDEX IF NOT EXISTS idx_practice_logs_exercise_id ON public.practice_logs(exercise_id);
 
 -- Enable Row-Level Security (RLS)
 ALTER TABLE public.active_standard ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exercises ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.practice_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.practice_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_sync_state ENABLE ROW LEVEL SECURITY;
 
--- Allow public read & write access for mobile client & web browser using Anon key
+-- Policies for Anon Key R/W
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'active_standard' AND policyname = 'Allow public read-write for active_standard'
-  ) THEN
-    CREATE POLICY "Allow public read-write for active_standard"
-      ON public.active_standard FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'active_standard' AND policyname = 'Allow public read-write for active_standard') THEN
+    CREATE POLICY "Allow public read-write for active_standard" ON public.active_standard FOR ALL USING (true) WITH CHECK (true);
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'exercises' AND policyname = 'Allow public read-write for exercises'
-  ) THEN
-    CREATE POLICY "Allow public read-write for exercises"
-      ON public.exercises FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'exercises' AND policyname = 'Allow public read-write for exercises') THEN
+    CREATE POLICY "Allow public read-write for exercises" ON public.exercises FOR ALL USING (true) WITH CHECK (true);
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'practice_sessions' AND policyname = 'Allow public read-write for practice_sessions'
-  ) THEN
-    CREATE POLICY "Allow public read-write for practice_sessions"
-      ON public.practice_sessions FOR ALL USING (true) WITH CHECK (true);
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'practice_logs' AND policyname = 'Allow public read-write for practice_logs') THEN
+    CREATE POLICY "Allow public read-write for practice_logs" ON public.practice_logs FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_sync_state' AND policyname = 'Allow public read-write for user_sync_state') THEN
+    CREATE POLICY "Allow public read-write for user_sync_state" ON public.user_sync_state FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 
--- Enable Realtime for Exercises and Active Standard tables
+-- Enable Realtime on all 4 tables
 DO $$
 BEGIN
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.exercises;
-  EXCEPTION WHEN OTHERS THEN NULL;
-  END;
-
-  BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.active_standard;
-  EXCEPTION WHEN OTHERS THEN NULL;
-  END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.exercises; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.active_standard; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.practice_logs; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.user_sync_state; EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;

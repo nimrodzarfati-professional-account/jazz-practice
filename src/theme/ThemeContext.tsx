@@ -4,6 +4,7 @@ import { Oswald_700Bold } from '@expo-google-fonts/oswald';
 import { CourierPrime_400Regular, CourierPrime_700Bold } from '@expo-google-fonts/courier-prime';
 import * as SplashScreen from 'expo-splash-screen';
 import { colors, warmColors, spacing, borderWidths, shadows, fontFamilies, typography } from './tokens';
+import { getUserSyncState, saveUserSyncState } from '../db/repository';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -51,10 +52,22 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     CourierPrime_700Bold,
   });
 
-  const [mode, setMode] = useState<ThemeMode>('default');
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    try {
+      return getUserSyncState().themeMode || 'default';
+    } catch {
+      return 'default';
+    }
+  });
 
   const toggleTheme = () => {
-    setMode((prevMode) => (prevMode === 'default' ? 'warm' : 'default'));
+    setMode((prevMode) => {
+      const nextMode = prevMode === 'default' ? 'warm' : 'default';
+      try {
+        saveUserSyncState({ themeMode: nextMode });
+      } catch {}
+      return nextMode;
+    });
   };
 
   const currentTheme = useMemo(() => ({

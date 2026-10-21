@@ -11,6 +11,8 @@ import { StampBadge } from '../components/StampBadge';
 import {
   graduateExerciseToMaintenance,
   updateExerciseProgress,
+  getUserSyncState,
+  saveUserSyncState,
 } from '../db/repository';
 import {
   playBlockCompleteChime,
@@ -36,7 +38,14 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   onUpdateQueueItem,
 }) => {
   const { colors, typography } = useTheme();
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(() => {
+    try {
+      const state = getUserSyncState();
+      return Math.max(0, Math.min(queue.length - 1, state.activeQueueIndex || 0));
+    } catch {
+      return 0;
+    }
+  });
   const activeExercise = queue[activeIndex] || null;
 
   // Timer is automatically set by the active exercise's allocatedMinutes
@@ -46,12 +55,24 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [isMetronomeOn, setIsMetronomeOn] = useState(false);
   const [currentBeat, setCurrentBeat] = useState(0);
-  const [feelMode, setFeelMode] = useState<MetronomeFeelMode>(
-    audioMetronomeService.getFeelMode()
-  );
-  const [metronomeVoice, setMetronomeVoice] = useState<MetronomeVoice>(
-    audioMetronomeService.getVoice()
-  );
+  const [feelMode, setFeelMode] = useState<MetronomeFeelMode>(() => {
+    try {
+      const savedFeel = getUserSyncState().metronomeFeel;
+      if (savedFeel) audioMetronomeService.setFeelMode(savedFeel);
+      return savedFeel || audioMetronomeService.getFeelMode();
+    } catch {
+      return audioMetronomeService.getFeelMode();
+    }
+  });
+  const [metronomeVoice, setMetronomeVoice] = useState<MetronomeVoice>(() => {
+    try {
+      const savedVoice = getUserSyncState().metronomeVoice;
+      if (savedVoice) audioMetronomeService.setVoice(savedVoice);
+      return savedVoice || audioMetronomeService.getVoice();
+    } catch {
+      return audioMetronomeService.getVoice();
+    }
+  });
 
   // Whenever the active exercise changes, reset the timer to THAT exercise's duration
   useEffect(() => {
@@ -106,7 +127,9 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       onRefreshData();
       // Auto-advance to next queued exercise if available
       if (activeIndex < queue.length - 1) {
-        setActiveIndex((idx) => idx + 1);
+        const nextIdx = activeIndex + 1;
+        setActiveIndex(nextIdx);
+        saveUserSyncState({ activeQueueIndex: nextIdx });
       }
     }
   };
@@ -168,14 +191,18 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   const handleNextDrill = () => {
     if (activeIndex < queue.length - 1) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setActiveIndex((idx) => idx + 1);
+      const nextIdx = activeIndex + 1;
+      setActiveIndex(nextIdx);
+      saveUserSyncState({ activeQueueIndex: nextIdx });
     }
   };
 
   const handlePrevDrill = () => {
     if (activeIndex > 0) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setActiveIndex((idx) => idx - 1);
+      const prevIdx = activeIndex - 1;
+      setActiveIndex(prevIdx);
+      saveUserSyncState({ activeQueueIndex: prevIdx });
     }
   };
 
@@ -310,8 +337,14 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
               <StampButton
                 label={isRunning ? '⏸ PAUSE' : '▶ START'}
                 variant="primary"
-                size="md"
+                size="sm"
                 onPress={() => setIsRunning(!isRunning)}
+              />
+              <StampButton
+                label="✓ LOG BLOCK"
+                variant="secondary"
+                size="sm"
+                onPress={handleBlockFinished}
               />
             </View>
           </View>
@@ -358,6 +391,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       audioMetronomeService.setVoice(v.id);
                       setMetronomeVoice(v.id);
+                      saveUserSyncState({ metronomeVoice: v.id });
                     }}
                     style={{
                       flex: 1,
@@ -394,6 +428,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                     feelMode === 'BACKBEAT_2_4' ? 'ALL_FOUR_2_4_ACCENT' : 'BACKBEAT_2_4';
                   audioMetronomeService.setFeelMode(nextMode);
                   setFeelMode(nextMode);
+                  saveUserSyncState({ metronomeFeel: nextMode });
                 }}
                 style={{
                   borderWidth: 1.5,

@@ -31,6 +31,9 @@ import {
   SyncConnectionStatus,
   getSyncStatus,
   subscribeToSyncStatus,
+  getCloudConfig,
+  saveCloudConfig,
+  pullAllFromCloud,
 } from '../services/CloudSyncService';
 import { CreamBlock } from '../components/CreamBlock';
 import { StampButton } from '../components/StampButton';
@@ -73,6 +76,11 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkRawText, setBulkRawText] = useState('');
 
+  // Cloud Database Modal State
+  const [showCloudModal, setShowCloudModal] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState('');
+  const [cloudKey, setCloudKey] = useState('');
+
   const reloadLocalExercises = useCallback(() => {
     setExercises(getAllVaultExercises());
   }, []);
@@ -92,6 +100,25 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     reloadLocalExercises();
     onRefreshQueue();
   }, [reloadLocalExercises, onRefreshQueue]);
+
+  const openCloudModal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const cfg = getCloudConfig();
+    setCloudUrl(cfg.url);
+    setCloudKey(cfg.anonKey);
+    setShowCloudModal(true);
+  };
+
+  const handleSaveCloudConfig = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    saveCloudConfig(cloudUrl, cloudKey);
+    setShowCloudModal(false);
+    const res = await pullAllFromCloud();
+    if (res.success) {
+      reloadLocalExercises();
+      onRefreshQueue();
+    }
+  };
 
   const openCreateModal = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -247,8 +274,11 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
             </Text>
           </View>
 
-          {/* Live Database Status Indicator */}
-          <View
+          {/* Live Database Status Indicator (Tap to open credentials config) */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cloud database sync status and settings"
+            onPress={openCloudModal}
             style={[
               styles.statusPill,
               {
@@ -279,7 +309,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 ? '↻ SYNCING'
                 : '○ OFFLINE CACHE'}
             </Text>
-          </View>
+          </Pressable>
         </View>
 
         {/* Action Bar: Direct Add & Bulk Add */}
@@ -326,15 +356,15 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
         <View style={styles.filterGroup}>
           {(
             [
-              { id: 'ALL', label: `ALL (\${exercises.length})` },
-              { id: 'IN_ROTATION', label: `ROTATION (\${inRotationCount})` },
-              { id: 'VAULT', label: `VAULT (\${vaultCount})` },
+              { id: 'ALL', label: `ALL (${exercises.length})` },
+              { id: 'IN_ROTATION', label: `ROTATION (${inRotationCount})` },
+              { id: 'VAULT', label: `VAULT (${vaultCount})` },
             ] as const
           ).map((tab) => (
             <Pressable
               key={tab.id}
               accessibilityRole="button"
-              accessibilityLabel={`Filter \${tab.label}`}
+              accessibilityLabel={`Filter ${tab.label}`}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setRotationFilter(tab.id);
@@ -367,7 +397,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
             <Pressable
               key={ctx}
               accessibilityRole="button"
-              accessibilityLabel={`Filter context \${ctx}`}
+              accessibilityLabel={`Filter context ${ctx}`}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setContextFilter(ctx);
@@ -426,8 +456,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                     }}
                   >
                     {ex.inRotation
-                      ? `IN ROTATION • \${tenure.currentStreakLabel}`
-                      : `VAULTED • \${tenure.currentStreakLabel}`}
+                      ? `IN ROTATION • ${tenure.currentStreakLabel}`
+                      : `VAULTED • ${tenure.currentStreakLabel}`}
                   </Text>
                 </View>
               </View>
@@ -470,7 +500,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 }}
               >
                 Intensity {ex.intensity}/5 • Priority {ex.basePriority}/10
-                {ex.isKeyBased ? ` • Keys \${ex.masteredKeys.length}/12` : ''}
+                {ex.isKeyBased ? ` • Keys ${ex.masteredKeys.length}/12` : ''}
               </Text>
             </View>
 
@@ -785,6 +815,145 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 variant="primary"
                 size="sm"
                 onPress={handleBulkIngest}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Cloud Database Connection Modal */}
+      <Modal visible={showCloudModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalBox,
+              {
+                backgroundColor: colors.cardSurface,
+                borderColor: colors.inkBlack,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.modalTitle,
+                {
+                  fontFamily: typography.fontDisplay,
+                  color: colors.inkBlack,
+                },
+              ]}
+            >
+              DATABASE CONNECTION
+            </Text>
+            <Text
+              style={{
+                fontFamily: typography.fontMono,
+                fontSize: 12,
+                color: colors.inkMuted,
+                marginBottom: 12,
+                lineHeight: 16,
+              }}
+            >
+              Enter your Supabase credentials once to enable realtime cross-device syncing between phone and computer.
+            </Text>
+
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 14,
+                padding: 8,
+                backgroundColor: colors.recessedSurface,
+                borderWidth: 1,
+                borderColor: colors.inkBlack,
+              }}
+            >
+              <Text style={{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.inkBlack }}>
+                STATUS:
+              </Text>
+              <Text
+                style={{
+                  fontFamily: typography.fontStamp,
+                  fontSize: 11,
+                  color:
+                    syncStatus === 'connected'
+                      ? colors.primary
+                      : syncStatus === 'syncing'
+                      ? colors.tertiary
+                      : colors.inkMuted,
+                }}
+              >
+                {syncStatus === 'connected'
+                  ? '● CONNECTED (REALTIME ACTIVE)'
+                  : syncStatus === 'syncing'
+                  ? '↻ SYNCING WITH SUPABASE'
+                  : '○ OFFLINE / CACHED LOCALLY'}
+              </Text>
+            </View>
+
+            <Text
+              style={[
+                styles.fieldLabel,
+                { fontFamily: typography.fontStamp, color: colors.inkBlack },
+              ]}
+            >
+              EXPO_PUBLIC_SUPABASE_URL:
+            </Text>
+            <TextInput
+              placeholder="https://xyzcompany.supabase.co"
+              placeholderTextColor={colors.inkMuted}
+              value={cloudUrl}
+              onChangeText={setCloudUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[
+                styles.modalInput,
+                {
+                  fontFamily: typography.fontMono,
+                  borderColor: colors.inkBlack,
+                  backgroundColor: colors.cardSurface,
+                  color: colors.textDark,
+                },
+              ]}
+            />
+
+            <Text
+              style={[
+                styles.fieldLabel,
+                { fontFamily: typography.fontStamp, color: colors.inkBlack, marginTop: 4 },
+              ]}
+            >
+              EXPO_PUBLIC_SUPABASE_ANON_KEY:
+            </Text>
+            <TextInput
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+              placeholderTextColor={colors.inkMuted}
+              value={cloudKey}
+              onChangeText={setCloudKey}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+              style={[
+                styles.modalInput,
+                {
+                  fontFamily: typography.fontMono,
+                  borderColor: colors.inkBlack,
+                  backgroundColor: colors.cardSurface,
+                  color: colors.textDark,
+                },
+              ]}
+            />
+
+            <View style={styles.modalActions}>
+              <StampButton
+                label="CANCEL"
+                variant="tertiary"
+                onPress={() => setShowCloudModal(false)}
+              />
+              <StampButton
+                label="SAVE & CONNECT"
+                variant="primary"
+                onPress={handleSaveCloudConfig}
               />
             </View>
           </View>

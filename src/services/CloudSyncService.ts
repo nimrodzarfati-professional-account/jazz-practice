@@ -2,7 +2,7 @@
  * CloudSyncService — Supabase-First Data Layer with Persistent Offline Mirror
  *
  * Architecture:
- * - Supabase is the primary Source of Truth for presenting exercises and active_standard.
+ * - Supabase is the primary Source of Truth for exercises, active_standard, practice_logs, and user_sync_state.
  * - Every create, update, rotate, and delete executes a direct R/W call to Supabase.
  * - Local SQLite (iOS/Android) / localStorage (Web) is kept as an exact persistent mirror
  *   so the app works seamlessly offline using the last synced version of the database.
@@ -11,7 +11,13 @@
  */
 import { AppState, Platform } from 'react-native';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ActiveStandard, Exercise, PitchKey } from '../types/models';
+import {
+  ActiveStandard,
+  Exercise,
+  PitchKey,
+  SessionLogEntry,
+  UserSyncState,
+} from '../types/models';
 import {
   getAllVaultExercises,
   getActiveStandard,
@@ -25,6 +31,10 @@ import {
   registerCloudSyncHandlers,
   getAppSetting,
   setAppSetting,
+  getPracticeLogs,
+  upsertLocalPracticeLogsFromCloud,
+  getUserSyncState,
+  upsertLocalUserStateFromCloud,
 } from '../db/repository';
 
 export type SyncConnectionStatus = 'connected' | 'syncing' | 'offline';
@@ -217,12 +227,79 @@ export function cloudRowToStandard(row: any): ActiveStandard {
   };
 }
 
+export function practiceLogToCloudRow(log: SessionLogEntry): Record<string, any> {
+  return {
+    id: log.id,
+    exercise_id: log.exerciseId,
+    exercise_title: log.exerciseTitle,
+    standard_title: log.standardTitle || null,
+    duration_minutes: log.durationMinutes,
+    bpm_achieved: log.bpmAchieved,
+    mastered_keys: log.masteredKeys || [],
+    practiced_at: log.practicedAt,
+  };
+}
+
+export function cloudRowToPracticeLog(row: any): SessionLogEntry {
+  let masteredKeys: PitchKey[] = [];
+  if (Array.isArray(row.mastered_keys)) {
+    masteredKeys = row.mastered_keys;
+  } else if (typeof row.mastered_keys === 'string') {
+    try {
+      masteredKeys = JSON.parse(row.mastered_keys);
+    } catch {
+      masteredKeys = [];
+    }
+  }
+
+  return {
+    id: row.id,
+    exerciseId: row.exercise_id,
+    exerciseTitle: row.exercise_title,
+    standardTitle: row.standard_title || undefined,
+    durationMinutes: Number(row.duration_minutes) || 15,
+    bpmAchieved: Number(row.bpm_achieved) || 120,
+    masteredKeys,
+    practicedAt: row.practiced_at || new Date().toISOString(),
+  };
+}
+
+export function userStateToCloudRow(state: UserSyncState): Record<string, any> {
+  return {
+    id: 'state_1',
+    available_minutes: state.availableMinutes,
+    intensity: state.intensity,
+    context_filter: state.contextFilter,
+    active_queue_ids: state.activeQueueIds || [],
+    active_queue_index: state.activeQueueIndex || 0,
+    metronome_feel: state.metronomeFeel || 'BACKBEAT_2_4',
+    metronome_voice: state.metronomeVoice || 'PENDULUM',
+    theme_mode: state.themeMode || 'default',
+    updated_at: state.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function cloudRowToUserState(row: any): UserSyncState {
+  return {
+    id: row.id || 'state_1',
+    availableMinutes: Number(row.available_minutes) || 30,
+    intensity: Number(row.intensity) || 3,
+    contextFilter: row.context_filter || 'ALL',
+    activeQueueIds: Array.isArray(row.active_queue_ids) ? row.active_queue_ids : [],
+    activeQueueIndex: Number(row.active_queue_index) || 0,
+    metronomeFeel: row.metronome_feel || 'BACKBEAT_2_4',
+    metronomeVoice: row.metronome_voice || 'PENDULUM',
+    themeMode: row.theme_mode || 'default',
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
 // ==============================================================================
 // Direct R/W Operations with Offline Outbox Queue Fallback
 // ==============================================================================
 
 export async function pushExerciseToCloud(exercise: Exercise): Promise<void> {
-  const mutationId = `mut_ex_\${exercise.id}`;
+  const mutationId = `mut_ex_${exercise.id}`;
   const client = getSupabaseClient();
 
   if (!client) {
@@ -258,7 +335,7 @@ export async function pushExerciseToCloud(exercise: Exercise): Promise<void> {
 }
 
 export async function pushDeleteExerciseToCloud(id: string): Promise<void> {
-  const mutationId = `mut_ex_\${id}`;
+  const mutationId = `mut_ex_${id}`;
   const client = getSupabaseClient();
 
   if (!client) {
@@ -293,7 +370,7 @@ export async function pushDeleteExerciseToCloud(id: string): Promise<void> {
 }
 
 export async function pushStandardToCloud(standard: ActiveStandard): Promise<void> {
-  const mutationId = `mut_std_\${standard.id || 'std_1'}`;
+  const mutationId = `mut_std_${standard.id || 'std_1'}`;
   const client = getSupabaseClient();
 
   if (!client) {
@@ -328,6 +405,74 @@ export async function pushStandardToCloud(standard: ActiveStandard): Promise<voi
   }
 }
 
+export async function pushPracticeLogToCloud(log: SessionLogEntry): Promise<void> {
+  const mutationId = `mut_log_${log.id}`;
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'practice_log',
+      action: 'UPSERT',
+      payload: JSON.stringify(log),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client.from('practice_logs').upsert(practiceLogToCloudRow(log));
+    if (error) throw error;
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushPracticeLog, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'practice_log',
+      action: 'UPSERT',
+      payload: JSON.stringify(log),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+  }
+}
+
+export async function pushUserStateToCloud(state: UserSyncState): Promise<void> {
+  const mutationId = 'mut_user_state_1';
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'user_state',
+      action: 'UPSERT',
+      payload: JSON.stringify(state),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client.from('user_sync_state').upsert(userStateToCloudRow(state));
+    if (error) throw error;
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushUserState, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'user_state',
+      action: 'UPSERT',
+      payload: JSON.stringify(state),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+  }
+}
+
 /**
  * Replays any offline mutations stored in `pending_mutations` to Supabase
  */
@@ -354,6 +499,18 @@ export async function flushPendingMutations(): Promise<void> {
           .from('active_standard')
           .upsert(standardToCloudRow(std));
         if (!error) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'practice_log' && mut.action === 'UPSERT') {
+        const log: SessionLogEntry = JSON.parse(mut.payload);
+        const { error } = await client
+          .from('practice_logs')
+          .upsert(practiceLogToCloudRow(log));
+        if (!error) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'user_state' && mut.action === 'UPSERT') {
+        const state: UserSyncState = JSON.parse(mut.payload);
+        const { error } = await client
+          .from('user_sync_state')
+          .upsert(userStateToCloudRow(state));
+        if (!error) removePendingMutation(mut.id);
       }
     } catch {
       // Leave in queue for next connectivity window
@@ -364,7 +521,7 @@ export async function flushPendingMutations(): Promise<void> {
 /**
  * Primary synchronization entry point:
  * 1. Flushes any pending offline writes to Supabase.
- * 2. Pulls the authoritative `active_standard` and `exercises` from Supabase.
+ * 2. Pulls authoritative `active_standard`, `exercises`, `practice_logs`, and `user_sync_state` from Supabase.
  * 3. Atomically mirrors Supabase into local SQLite / localStorage cache.
  * 4. If offline, keeps the last persisted local snapshot intact.
  */
@@ -461,6 +618,45 @@ export async function pullAllFromCloud(): Promise<{
       pendingUpsertExercises
     );
 
+    // Step 5: Sync Practice Logs
+    try {
+      const { data: logsData } = await client
+        .from('practice_logs')
+        .select('*')
+        .order('practiced_at', { ascending: false })
+        .limit(200);
+
+      if (logsData && logsData.length > 0) {
+        upsertLocalPracticeLogsFromCloud(logsData.map(cloudRowToPracticeLog));
+      } else {
+        const localLogs = getPracticeLogs();
+        if (localLogs.length > 0) {
+          const rows = localLogs.map(practiceLogToCloudRow);
+          await client.from('practice_logs').upsert(rows);
+        }
+      }
+    } catch (logErr) {
+      console.warn('[CloudSync] Practice logs sync notice:', logErr);
+    }
+
+    // Step 6: Sync User Sync State (Call Sheet faders, queue, metronome, theme)
+    try {
+      const { data: stateData } = await client
+        .from('user_sync_state')
+        .select('*')
+        .eq('id', 'state_1')
+        .limit(1);
+
+      if (stateData && stateData.length > 0) {
+        upsertLocalUserStateFromCloud(cloudRowToUserState(stateData[0]));
+      } else {
+        const localState = getUserSyncState();
+        await client.from('user_sync_state').upsert(userStateToCloudRow(localState));
+      }
+    } catch (stateErr) {
+      console.warn('[CloudSync] User sync state notice:', stateErr);
+    }
+
     setSyncStatus('connected');
     return { success: true, count: remoteExercises.length };
   } catch (err: any) {
@@ -552,6 +748,42 @@ export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => voi
         }
       }
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'practice_logs' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row && row.id) {
+              const log = cloudRowToPracticeLog(row);
+              upsertLocalPracticeLogsFromCloud([log]);
+              onDataUpdated();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime practice_log event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'user_sync_state' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row) {
+              const state = cloudRowToUserState(row);
+              upsertLocalUserStateFromCloud(state);
+              onDataUpdated();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime user_sync_state event error:', err);
+        }
+      }
+    )
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         setSyncStatus('connected');
@@ -580,4 +812,12 @@ registerCloudSyncHandlers({
   pushStandard: (std) => {
     pushStandardToCloud(std);
   },
+  pushPracticeLog: (log) => {
+    pushPracticeLogToCloud(log);
+  },
+  pushUserState: (state) => {
+    pushUserStateToCloud(state);
+  },
+});
+
 });

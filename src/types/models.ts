@@ -117,9 +117,23 @@ export interface SessionLogEntry {
   id: string;
   exerciseId: string;
   exerciseTitle: string;
+  standardTitle?: string;
   durationMinutes: number;
   bpmAchieved: number;
   masteredKeys: PitchKey[];
   practicedAt: string;
   notes?: string;
+}
+
+export interface UserSyncState {
+  id: string; // 'state_1'
+  availableMinutes: number;
+  intensity: number;
+  contextFilter: 'ALL' | MusicalContext;
+  activeQueueIds: string[];
+  activeQueueIndex: number;
+  metronomeFeel: 'BACKBEAT_2_4' | 'ALL_FOUR_2_4_ACCENT';
+  metronomeVoice: 'PENDULUM' | 'HI_HAT' | 'RIMSHOT' | 'WOODBLOCK';
+  themeMode: 'default' | 'warm';
+  updatedAt: string;
 }

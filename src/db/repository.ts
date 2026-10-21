@@ -1,12 +1,18 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
-import { ActiveStandard, Exercise, PitchKey } from '../types/models';
+import {
+  ActiveStandard,
+  Exercise,
+  PitchKey,
+  SessionLogEntry,
+  UserSyncState,
+} from '../types/models';
 
 export interface PendingMutation {
   id: string;
-  entityType: 'exercise' | 'standard';
+  entityType: 'exercise' | 'standard' | 'practice_log' | 'user_state';
   action: 'UPSERT' | 'DELETE';
-  payload: string; // JSON string of Exercise, ActiveStandard, or { id: string }
+  payload: string; // JSON string of Exercise, ActiveStandard, SessionLogEntry, UserSyncState, or { id: string }
   createdAt: string;
 }
 
@@ -27,15 +33,21 @@ let isInitialized = false;
 let onCloudPushExercise: ((ex: Exercise) => void) | null = null;
 let onCloudDeleteExercise: ((id: string) => void) | null = null;
 let onCloudPushStandard: ((std: ActiveStandard) => void) | null = null;
+let onCloudPushPracticeLog: ((log: SessionLogEntry) => void) | null = null;
+let onCloudPushUserState: ((state: UserSyncState) => void) | null = null;
 
 export function registerCloudSyncHandlers(handlers: {
   pushExercise: (ex: Exercise) => void;
   deleteExercise: (id: string) => void;
   pushStandard: (std: ActiveStandard) => void;
+  pushPracticeLog?: (log: SessionLogEntry) => void;
+  pushUserState?: (state: UserSyncState) => void;
 }): void {
   onCloudPushExercise = handlers.pushExercise;
   onCloudDeleteExercise = handlers.deleteExercise;
   onCloudPushStandard = handlers.pushStandard;
+  onCloudPushPracticeLog = handlers.pushPracticeLog || null;
+  onCloudPushUserState = handlers.pushUserState || null;
 }
 
 const DEFAULT_ACTIVE_STANDARD: ActiveStandard = {
@@ -831,11 +843,15 @@ export function toggleExerciseRotation(id: string, inRotation: boolean): void {
   initDatabase();
   const db = getDb();
   const row = db.getFirstSync<any>('SELECT * FROM exercises WHERE id = ?', [id]);
-  const currentInRot = row ? Boolean(row.inRotation) : !inRotation;
-  const changedAt = row?.rotationChangedAt || new Date().toISOString();
+  if (!row) return;
+  const currentInRot = Boolean(row.inRotation);
+  if (currentInRot === inRotation) {
+    return; // No change in rotation status; preserve streak!
+  }
+  const changedAt = row.rotationChangedAt || new Date().toISOString();
   const elapsedMs = Math.max(0, Date.now() - new Date(changedAt).getTime());
-  let accIn = row ? Number(row.accumulatedInRotationMs) || 0 : 0;
-  let accOut = row ? Number(row.accumulatedOutRotationMs) || 0 : 0;
+  let accIn = Number(row.accumulatedInRotationMs) || 0;
+  let accOut = Number(row.accumulatedOutRotationMs) || 0;
   if (currentInRot) {
     accIn += elapsedMs;
   } else {
@@ -886,6 +902,15 @@ export function updateExerciseProgress(
        WHERE id = ?`,
       [bpm, JSON.stringify(keys), new Date().toISOString(), id]
     );
+    const exercise = getExerciseById(id);
+    if (exercise) {
+      const activeStd = getActiveStandard();
+      const stdTitle =
+        exercise.usesActiveStandard || exercise.category === 'MAINTENANCE'
+          ? activeStd?.title
+          : undefined;
+      logPracticeSession(exercise, exercise.durationMinutes, stdTitle);
+    }
   } else {
     db.runSync(
       `UPDATE exercises SET currentBpm = ?, masteredKeys = ? WHERE id = ?`,
@@ -1038,3 +1063,105 @@ export function setAppSetting(key: string, value: string): void {
     console.warn('[Repository] setAppSetting error:', err);
   }
 }
+
+// ==============================================================================
+// Practice Logs & User Sync State Operations
+// ==============================================================================
+
+const LOGS_SETTING_KEY = 'shed_v2_practice_logs_json';
+const USER_STATE_SETTING_KEY = 'shed_v2_user_sync_state_json';
+
+export function getPracticeLogs(): SessionLogEntry[] {
+  initDatabase();
+  const raw = getAppSetting(LOGS_SETTING_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as SessionLogEntry[];
+  } catch {
+    return [];
+  }
+}
+
+export function upsertLocalPracticeLogsFromCloud(logs: SessionLogEntry[]): void {
+  initDatabase();
+  const existing = getPracticeLogs();
+  const map = new Map<string, SessionLogEntry>();
+  for (const l of existing) map.set(l.id, l);
+  for (const l of logs) map.set(l.id, l);
+  const merged = Array.from(map.values())
+    .sort((a, b) => b.practicedAt.localeCompare(a.practicedAt))
+    .slice(0, 200);
+  setAppSetting(LOGS_SETTING_KEY, JSON.stringify(merged));
+}
+
+export function logPracticeSession(
+  exercise: Exercise,
+  durationMinutes: number,
+  standardTitle?: string
+): SessionLogEntry {
+  initDatabase();
+  const nowIso = new Date().toISOString();
+  const entry: SessionLogEntry = {
+    id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    exerciseId: exercise.id,
+    exerciseTitle: exercise.title,
+    standardTitle,
+    durationMinutes,
+    bpmAchieved: exercise.currentBpm,
+    masteredKeys: exercise.masteredKeys,
+    practicedAt: nowIso,
+  };
+  upsertLocalPracticeLogsFromCloud([entry]);
+  if (onCloudPushPracticeLog) {
+    onCloudPushPracticeLog(entry);
+  }
+  return entry;
+}
+
+export const DEFAULT_USER_SYNC_STATE: UserSyncState = {
+  id: 'state_1',
+  availableMinutes: 30,
+  intensity: 3,
+  contextFilter: 'ALL',
+  activeQueueIds: [],
+  activeQueueIndex: 0,
+  metronomeFeel: 'BACKBEAT_2_4',
+  metronomeVoice: 'PENDULUM',
+  themeMode: 'default',
+  updatedAt: new Date(0).toISOString(),
+};
+
+export function getUserSyncState(): UserSyncState {
+  initDatabase();
+  const raw = getAppSetting(USER_STATE_SETTING_KEY);
+  if (!raw) return DEFAULT_USER_SYNC_STATE;
+  try {
+    return { ...DEFAULT_USER_SYNC_STATE, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_USER_SYNC_STATE;
+  }
+}
+
+export function upsertLocalUserStateFromCloud(state: UserSyncState): void {
+  initDatabase();
+  setAppSetting(USER_STATE_SETTING_KEY, JSON.stringify(state));
+}
+
+export function saveUserSyncState(
+  partial: Partial<Omit<UserSyncState, 'id' | 'updatedAt'>>
+): UserSyncState {
+  initDatabase();
+  const current = getUserSyncState();
+  const updated: UserSyncState = {
+    ...current,
+    ...partial,
+    id: 'state_1',
+    updatedAt: new Date().toISOString(),
+  };
+  upsertLocalUserStateFromCloud(updated);
+  if (onCloudPushUserState) {
+    onCloudPushUserState(updated);
+  }
+  return updated;
+}
+

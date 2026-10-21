@@ -42,6 +42,8 @@ import {
   getRotationExercises,
   rotateActiveStandard,
   initDatabase,
+  getUserSyncState,
+  saveUserSyncState,
 } from './src/db/repository';
 import { generateSessionQueue } from './src/services/SchedulerEngine';
 import { setupAlarmChannel } from './src/services/AlarmManager';
@@ -65,9 +67,27 @@ function AppContent() {
   const { colors, typography, mode, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<TabRoute>('shed');
   const [activeStandard, setActiveStandard] = useState<ActiveStandard>(getActiveStandard);
-  const [availableMinutes, setAvailableMinutes] = useState(30);
-  const [intensity, setIntensity] = useState(3);
-  const [contextFilter, setContextFilter] = useState<'ALL' | MusicalContext>('ALL');
+  const [availableMinutes, setAvailableMinutes] = useState(() => {
+    try {
+      return getUserSyncState().availableMinutes || 30;
+    } catch {
+      return 30;
+    }
+  });
+  const [intensity, setIntensity] = useState(() => {
+    try {
+      return getUserSyncState().intensity || 3;
+    } catch {
+      return 3;
+    }
+  });
+  const [contextFilter, setContextFilter] = useState<'ALL' | MusicalContext>(() => {
+    try {
+      return getUserSyncState().contextFilter || 'ALL';
+    } catch {
+      return 'ALL';
+    }
+  });
   const [queue, setQueue] = useState<ScoredExercise[]>([]);
 
   // Rotate Standard Modal State
@@ -79,15 +99,27 @@ function AppContent() {
   const refreshData = useCallback(() => {
     const std = getActiveStandard();
     setActiveStandard(std);
+    const syncState = getUserSyncState();
+    if (syncState.availableMinutes && syncState.availableMinutes !== availableMinutes) {
+      setAvailableMinutes(syncState.availableMinutes);
+    }
+    if (syncState.intensity && syncState.intensity !== intensity) {
+      setIntensity(syncState.intensity);
+    }
+    if (syncState.contextFilter && syncState.contextFilter !== contextFilter) {
+      setContextFilter(syncState.contextFilter);
+    }
+
     const rotationExercises = getRotationExercises();
     const newQueue = generateSessionQueue(
       rotationExercises,
       std,
-      availableMinutes,
-      intensity,
-      contextFilter
+      syncState.availableMinutes || availableMinutes,
+      syncState.intensity || intensity,
+      syncState.contextFilter || contextFilter
     );
     setQueue(newQueue);
+    saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
   }, [availableMinutes, intensity, contextFilter]);
 
   useEffect(() => {
@@ -176,12 +208,21 @@ function AppContent() {
             contextFilter={contextFilter}
             previewQueue={queue}
             onChangeMinutes={(m) => {
-              if (Number.isFinite(m) && m >= 15 && m <= 120) setAvailableMinutes(m);
+              if (Number.isFinite(m) && m >= 15 && m <= 120) {
+                setAvailableMinutes(m);
+                saveUserSyncState({ availableMinutes: m });
+              }
             }}
             onChangeIntensity={(i) => {
-              if (Number.isFinite(i) && i >= 1 && i <= 5) setIntensity(i);
+              if (Number.isFinite(i) && i >= 1 && i <= 5) {
+                setIntensity(i);
+                saveUserSyncState({ intensity: i });
+              }
             }}
-            onChangeContextFilter={(f) => setContextFilter(f)}
+            onChangeContextFilter={(f) => {
+              setContextFilter(f);
+              saveUserSyncState({ contextFilter: f });
+            }}
             onStartSession={() => setActiveTab('shed')}
             onOpenRotateStandardModal={() => setShowRotateModal(true)}
           />
