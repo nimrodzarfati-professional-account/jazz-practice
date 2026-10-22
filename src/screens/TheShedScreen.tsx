@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
@@ -46,7 +46,14 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       return 0;
     }
   });
-  const activeExercise = queue[activeIndex] || null;
+  const safeActiveIndex = queue.length > 0 ? Math.max(0, Math.min(activeIndex, queue.length - 1)) : 0;
+  const activeExercise = queue[safeActiveIndex] || null;
+
+  useEffect(() => {
+    if (queue.length > 0 && activeIndex >= queue.length) {
+      setActiveIndex(queue.length - 1);
+    }
+  }, [queue.length, activeIndex]);
 
   // Timer is automatically set by the active exercise's allocatedMinutes
   const [secondsLeft, setSecondsLeft] = useState<number>(
@@ -95,25 +102,6 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     };
   }, []);
 
-  // Countdown tick loop
-  useEffect(() => {
-    if (!isRunning || !activeExercise) return;
-
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          handleBlockFinished();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, activeExercise]);
-
   const handleBlockFinished = () => {
     setIsRunning(false);
     playBlockCompleteChime(); // Studio chime only — NO voice TTS
@@ -133,6 +121,27 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       }
     }
   };
+
+  const handleBlockFinishedRef = useRef(handleBlockFinished);
+  handleBlockFinishedRef.current = handleBlockFinished;
+
+  // Countdown tick loop — depends strictly on isRunning and activeExercise?.id
+  useEffect(() => {
+    if (!isRunning || !activeExercise?.id) return;
+
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRunning, activeExercise?.id]);
+
+  // Separate trigger for block finished when timer reaches zero
+  useEffect(() => {
+    if (isRunning && secondsLeft === 0) {
+      handleBlockFinishedRef.current();
+    }
+  }, [isRunning, secondsLeft]);
 
   const handleToggleKey = (key: PitchKey) => {
     if (!activeExercise) return;
@@ -155,7 +164,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     if (newBpm === activeExercise.currentBpm) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    updateExerciseProgress(activeExercise.id, newBpm, activeExercise.masteredKeys, false);
+    // Session-only BPM update: do NOT write to SQLite / Supabase here
     const updated = { ...activeExercise, currentBpm: newBpm };
     if (onUpdateQueueItem) {
       onUpdateQueueItem(updated);
@@ -245,6 +254,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setActiveIndex(idx);
+                  saveUserSyncState({ activeQueueIndex: idx });
                 }}
                 style={[
                   styles.queuePill,
@@ -338,7 +348,12 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                 label={isRunning ? '⏸ PAUSE' : '▶ START'}
                 variant="primary"
                 size="sm"
-                onPress={() => setIsRunning(!isRunning)}
+                onPress={() => {
+                  if (!isRunning && secondsLeft === 0 && activeExercise) {
+                    setSecondsLeft(activeExercise.allocatedMinutes * 60);
+                  }
+                  setIsRunning(!isRunning);
+                }}
               />
               <StampButton
                 label="✓ LOG BLOCK"

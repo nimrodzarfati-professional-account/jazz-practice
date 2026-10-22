@@ -412,12 +412,11 @@ function createWebStorageAdapter(): SyncDb {
         return;
       }
 
-      if (sql.includes('SET currentBpm = ?, masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0')) {
-        const [bpm, keys, practicedAt, id] = params;
+      if (sql.includes('SET masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0')) {
+        const [keys, practicedAt, id] = params;
         const list = readExercises();
         const item = list.find((e) => e.id === id);
         if (item) {
-          item.currentBpm = bpm;
           item.masteredKeys = keys;
           item.lastPracticedAt = practicedAt;
           item.skippedCount = 0;
@@ -426,12 +425,11 @@ function createWebStorageAdapter(): SyncDb {
         return;
       }
 
-      if (sql.includes('SET currentBpm = ?, masteredKeys = ? WHERE id = ?')) {
-        const [bpm, keys, id] = params;
+      if (sql.includes('SET masteredKeys = ? WHERE id = ?')) {
+        const [keys, id] = params;
         const list = readExercises();
         const item = list.find((e) => e.id === id);
         if (item) {
-          item.currentBpm = bpm;
           item.masteredKeys = keys;
           writeExercises(list);
         }
@@ -898,9 +896,9 @@ export function updateExerciseProgress(
   if (markPracticedNow) {
     db.runSync(
       `UPDATE exercises
-       SET currentBpm = ?, masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0
+       SET masteredKeys = ?, lastPracticedAt = ?, skippedCount = 0
        WHERE id = ?`,
-      [bpm, JSON.stringify(keys), new Date().toISOString(), id]
+      [JSON.stringify(keys), new Date().toISOString(), id]
     );
     const exercise = getExerciseById(id);
     if (exercise) {
@@ -909,12 +907,17 @@ export function updateExerciseProgress(
         exercise.usesActiveStandard || exercise.category === 'MAINTENANCE'
           ? activeStd?.title
           : undefined;
-      logPracticeSession(exercise, exercise.durationMinutes, stdTitle);
+      // Log the session's achieved BPM in practice_logs without altering exercises.currentBpm
+      logPracticeSession(
+        { ...exercise, currentBpm: bpm },
+        exercise.durationMinutes,
+        stdTitle
+      );
     }
   } else {
     db.runSync(
-      `UPDATE exercises SET currentBpm = ?, masteredKeys = ? WHERE id = ?`,
-      [bpm, JSON.stringify(keys), id]
+      `UPDATE exercises SET masteredKeys = ? WHERE id = ?`,
+      [JSON.stringify(keys), id]
     );
   }
   if (onCloudPushExercise) {

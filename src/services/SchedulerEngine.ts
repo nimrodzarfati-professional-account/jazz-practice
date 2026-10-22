@@ -94,3 +94,33 @@ export function generateSessionQueue(
 
   return packedQueue;
 }
+
+export function reconcileQueueInPlace(
+  currentQueue: ScoredExercise[],
+  allExercises: Exercise[],
+  activeStandard: ActiveStandard,
+  preserveSessionBpm: boolean = true
+): ScoredExercise[] {
+  if (currentQueue.length === 0) return currentQueue;
+  const map = new Map<string, Exercise>(allExercises.map((e) => [e.id, e]));
+
+  return currentQueue
+    .filter((item) => map.has(item.id))
+    .map((item) => {
+      const fresh = map.get(item.id)!;
+      return {
+        ...item,
+        ...fresh,
+        // Keep temporary in-session BPM unless refreshed from The Crate
+        currentBpm: preserveSessionBpm ? item.currentBpm : fresh.currentBpm,
+        urgencyScore: item.urgencyScore,
+        allocatedMinutes: item.allocatedMinutes,
+        assignedStandardTitle:
+          fresh.usesActiveStandard || fresh.category === 'MAINTENANCE'
+            ? activeStandard?.title && activeStandard?.defaultKey
+              ? `${activeStandard.title} (${activeStandard.defaultKey})`
+              : 'No standard chosen'
+            : undefined,
+      };
+    });
+}

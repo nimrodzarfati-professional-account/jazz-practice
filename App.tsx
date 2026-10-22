@@ -45,7 +45,7 @@ import {
   getUserSyncState,
   saveUserSyncState,
 } from './src/db/repository';
-import { generateSessionQueue } from './src/services/SchedulerEngine';
+import { generateSessionQueue, reconcileQueueInPlace } from './src/services/SchedulerEngine';
 import { setupAlarmChannel } from './src/services/AlarmManager';
 import { pullAllFromCloud, subscribeToRealtimeChanges } from './src/services/CloudSyncService';
 
@@ -96,6 +96,19 @@ function AppContent() {
   const [newStandardKey, setNewStandardKey] = useState<PitchKey>('Bb');
   const [newCycleDays, setNewCycleDays] = useState<7 | 10 | 14>(14);
 
+  const rebuildQueue = useCallback(() => {
+    const std = getActiveStandard();
+    setActiveStandard(std);
+    const syncState = getUserSyncState();
+    const mins = syncState.availableMinutes || availableMinutes;
+    const ints = syncState.intensity || intensity;
+    const filter = syncState.contextFilter || contextFilter;
+    const rotationExercises = getRotationExercises();
+    const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
+    setQueue(newQueue);
+    saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
+  }, [availableMinutes, intensity, contextFilter]);
+
   const refreshData = useCallback(() => {
     const std = getActiveStandard();
     setActiveStandard(std);
@@ -111,13 +124,62 @@ function AppContent() {
     }
 
     const rotationExercises = getRotationExercises();
-    const newQueue = generateSessionQueue(
-      rotationExercises,
-      std,
-      syncState.availableMinutes || availableMinutes,
-      syncState.intensity || intensity,
-      syncState.contextFilter || contextFilter
-    );
+    const mins = syncState.availableMinutes || availableMinutes;
+    const ints = syncState.intensity || intensity;
+    const filter = syncState.contextFilter || contextFilter;
+
+    setQueue((prevQueue) => {
+      if (prevQueue.length === 0) {
+        const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
+        saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
+        return newQueue;
+      }
+      const reconciled = reconcileQueueInPlace(prevQueue, rotationExercises, std, true);
+      saveUserSyncState({ activeQueueIds: reconciled.map((q) => q.id) });
+      return reconciled;
+    });
+  }, [availableMinutes, intensity, contextFilter]);
+
+  const handleCrateRefreshQueue = useCallback(() => {
+    const std = getActiveStandard();
+    setActiveStandard(std);
+    const rotationExercises = getRotationExercises();
+    setQueue((prevQueue) => {
+      if (prevQueue.length === 0) {
+        return generateSessionQueue(
+          rotationExercises,
+          std,
+          availableMinutes,
+          intensity,
+          contextFilter
+        );
+      }
+      // Reconcile existing queue with preserveSessionBpm = false so edited base BPM in The Crate immediately updates
+      const reconciled = reconcileQueueInPlace(prevQueue, rotationExercises, std, false);
+      saveUserSyncState({ activeQueueIds: reconciled.map((q) => q.id) });
+      return reconciled;
+    });
+  }, [availableMinutes, intensity, contextFilter]);
+
+  const handleFaderChange = useCallback((
+    newMins?: number,
+    newIntensity?: number,
+    newFilter?: 'ALL' | MusicalContext
+  ) => {
+    const mins = newMins ?? availableMinutes;
+    const ints = newIntensity ?? intensity;
+    const filter = newFilter ?? contextFilter;
+    if (newMins !== undefined) setAvailableMinutes(mins);
+    if (newIntensity !== undefined) setIntensity(ints);
+    if (newFilter !== undefined) setContextFilter(filter);
+    saveUserSyncState({
+      availableMinutes: mins,
+      intensity: ints,
+      contextFilter: filter,
+    });
+    const std = getActiveStandard();
+    const rotationExercises = getRotationExercises();
+    const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
     setQueue(newQueue);
     saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
   }, [availableMinutes, intensity, contextFilter]);
@@ -125,7 +187,7 @@ function AppContent() {
   useEffect(() => {
     initDatabase();
     setupAlarmChannel();
-    refreshData();
+    rebuildQueue();
 
     // Always hydrate from Supabase (Source of Truth); falls back to local mirror if offline
     pullAllFromCloud().then(() => {
@@ -140,7 +202,8 @@ function AppContent() {
     return () => {
       unsubscribe();
     };
-  }, [refreshData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSelectExerciseFromCrate = (exercise: Exercise) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -197,7 +260,7 @@ function AppContent() {
         {activeTab === 'crate' && (
           <TheCrateScreen
             onSelectExercise={handleSelectExerciseFromCrate}
-            onRefreshQueue={refreshData}
+            onRefreshQueue={handleCrateRefreshQueue}
           />
         )}
         {activeTab === 'callsheet' && (
@@ -209,19 +272,16 @@ function AppContent() {
             previewQueue={queue}
             onChangeMinutes={(m) => {
               if (Number.isFinite(m) && m >= 15 && m <= 120) {
-                setAvailableMinutes(m);
-                saveUserSyncState({ availableMinutes: m });
+                handleFaderChange(m, undefined, undefined);
               }
             }}
             onChangeIntensity={(i) => {
               if (Number.isFinite(i) && i >= 1 && i <= 5) {
-                setIntensity(i);
-                saveUserSyncState({ intensity: i });
+                handleFaderChange(undefined, i, undefined);
               }
             }}
             onChangeContextFilter={(f) => {
-              setContextFilter(f);
-              saveUserSyncState({ contextFilter: f });
+              handleFaderChange(undefined, undefined, f);
             }}
             onStartSession={() => setActiveTab('shed')}
             onOpenRotateStandardModal={() => setShowRotateModal(true)}
