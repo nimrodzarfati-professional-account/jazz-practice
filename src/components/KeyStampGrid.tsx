@@ -36,10 +36,10 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
     <View style={styles.container}>
       <View style={[styles.headerRow, { borderBottomColor: colors.inkBlack }]}>
         <Text style={[styles.headerTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-          12-KEY CIRCLE STAMP PAD ({masteredKeys.length}/12)
+          12-KEY PROGRESS ({masteredKeys.length}/12)
         </Text>
         <Text style={[styles.headerHint, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-          Tap to ink-stamp
+          Tap keys you finished
         </Text>
       </View>
 

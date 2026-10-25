@@ -312,7 +312,7 @@ function AppContent() {
               },
             ]}
           >
-            [ THE SHED ]
+            [ TRAINING ROOM ]
           </Text>
         </TouchableOpacity>
 
@@ -337,7 +337,7 @@ function AppContent() {
               },
             ]}
           >
-            [ THE CRATE ]
+            [ PRACTICE VAULT ]
           </Text>
         </TouchableOpacity>
 
@@ -362,7 +362,7 @@ function AppContent() {
               },
             ]}
           >
-            [ CALL SHEET ]
+            [ SESSION PLAN ]
           </Text>
         </TouchableOpacity>
 
@@ -390,15 +390,15 @@ function AppContent() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
             <Text style={[styles.modalTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-              SWITCH ACTIVE STANDARD
+              CHANGE CURRENT SONG
             </Text>
             <Text style={[styles.modalSub, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-              Rotates the 1-2 week tune cycle used by all Maintenance voicings & comping drills.
+              Pick the main song you want to practice with your maintenance exercises for the next 1-2 weeks.
             </Text>
 
             {/* Custom Title Input */}
             <TextInput
-              placeholder="Or enter tune title..."
+              placeholder="Or type a song title..."
               placeholderTextColor={colors.inkMuted}
               value={newStandardTitle}
               onChangeText={setNewStandardTitle}
@@ -474,7 +474,7 @@ function AppContent() {
 
             {/* Cycle Days */}
             <Text style={[styles.presetHeader, { fontFamily: typography.fontStamp, marginTop: 10 }]}>
-              ROTATION CYCLE DURATION:
+              HOW LONG TO KEEP THIS SONG:
             </Text>
             <View style={styles.cycleRow}>
               {([7, 10, 14] as const).map((days) => (
@@ -512,7 +512,7 @@ function AppContent() {
                 onPress={() => setShowRotateModal(false)}
               />
               <StampButton
-                label="APPLY ROTATION"
+                label="SAVE SONG"
                 variant="primary"
                 onPress={handleSaveStandardRotation}
               />

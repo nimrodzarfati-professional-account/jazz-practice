@@ -46,7 +46,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
               { fontFamily: typography.fontStamp, color: colors.primary },
             ]}
           >
-            MAINT. STANDARD ({standard?.defaultKey || 'N/A'})
+            CURRENT SONG ({standard?.defaultKey || 'N/A'})
           </Text>
           <Text
             style={[
@@ -58,7 +58,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
             ]}
           >
             • DAY {daysElapsed}/{standard?.rotationCycleDays || 14}
-            {isDueToRotate ? ' (DUE TO ROTATE)' : ''}
+            {isDueToRotate ? ' (TIME TO CHANGE)' : ''}
           </Text>
         </View>
         <Text
@@ -90,7 +90,7 @@ export const ActiveStandardBanner: React.FC<ActiveStandardBannerProps> = ({
             },
           ]}
         >
-          ↻ SWITCH TUNE
+          ↻ CHANGE SONG
         </Text>
       </Pressable>
     </View>

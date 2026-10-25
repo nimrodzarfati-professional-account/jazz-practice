@@ -53,26 +53,26 @@ interface ExerciseBpmSummary {
 }
 
 const SESSION_PRESETS = [
-  { label: 'EXPRESS 20m', minutes: 20, intensity: 3 },
-  { label: 'STANDARD 45m', minutes: 45, intensity: 3 },
-  { label: 'WOODSHED 90m', minutes: 90, intensity: 4 },
+  { label: 'QUICK 20m', minutes: 20, intensity: 3 },
+  { label: 'REGULAR 45m', minutes: 45, intensity: 3 },
+  { label: 'LONG 90m', minutes: 90, intensity: 4 },
 ];
 
 function formatUrgencyReason(item: ScoredExercise): string {
   if (item.skippedCount > 0) {
-    return `${item.skippedCount}x skipped`;
+    return `Skipped ${item.skippedCount}x`;
   }
   if (!item.lastPracticedAt) {
-    return 'Never practiced';
+    return 'Not practiced yet';
   }
   const days = Math.max(0, (Date.now() - new Date(item.lastPracticedAt).getTime()) / 86400000);
   if (days >= 2) {
-    return `${Math.round(days)}d decay`;
+    return `${Math.round(days)}d since practiced`;
   }
   if (item.isKeyBased && item.masteredKeys.length < 12) {
-    return `${12 - item.masteredKeys.length} keys unmastered`;
+    return `${12 - item.masteredKeys.length} keys left`;
   }
-  return `Priority ${item.basePriority}/10`;
+  return `Importance ${item.basePriority}/10`;
 }
 
 function formatTotalDuration(minutes: number): string {
@@ -230,10 +230,10 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
   const renderMixingConsoleCard = () => (
     <CreamBlock>
       <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-        STUDIO CALL SHEET // MIXING CONSOLE
+        SESSION PLANNER
       </Text>
       <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-        Dial in your session window and mental stamina to assemble today’s optimal routine.
+        Choose your available time and energy level to build today’s practice plan.
       </Text>
 
       {/* 1-Tap Studio Presets */}
@@ -276,7 +276,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
 
       <View style={styles.fadersRow}>
         <StudioFader
-          label="SESSION TIME"
+          label="PRACTICE TIME"
           value={Number.isFinite(availableMinutes) ? availableMinutes : 30}
           min={15}
           max={120}
@@ -289,7 +289,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
         />
 
         <StudioFader
-          label="CHOP BATTERY"
+          label="ENERGY LEVEL"
           value={Number.isFinite(intensity) ? intensity : 3}
           min={1}
           max={5}
@@ -345,10 +345,10 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
     <CreamBlock>
       <View style={[styles.queueHeader, { borderBottomColor: colors.inkBlack }]}>
         <Text style={[styles.queueTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-          SCHEDULED ROUTINE ({previewQueue.length} BLOCKS • {totalAllocatedMinutes}m)
+          TODAY'S PRACTICE PLAN ({previewQueue.length} EXERCISES • {totalAllocatedMinutes}m)
         </Text>
         <Text style={[styles.queueSubtitle, { fontFamily: typography.fontMono, color: colors.secondary }]}>
-          Rotated & Decay-Weighted
+          Sorted by Priority
         </Text>
       </View>
 
@@ -376,7 +376,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
                 <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
               </View>
               <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-                Urgency: {item.urgencyScore}% • {formatUrgencyReason(item)}
+                Priority: {item.urgencyScore}% • {formatUrgencyReason(item)}
               </Text>
             </View>
           </View>
@@ -391,7 +391,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
 
       <View style={{ marginTop: 14 }}>
         <StampButton
-          label="▶ START SHED SESSION"
+          label="▶ START PRACTICE"
           variant="primary"
           size="lg"
           onPress={onStartSession}
@@ -403,15 +403,15 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
   const renderAlarmsCard = () => (
     <CreamBlock>
       <Text style={[styles.sectionTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
-        HARDWARE OS PRACTICE ALARMS
+        DAILY PRACTICE REMINDER
       </Text>
       <Text style={[styles.sectionSubtitle, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-        Schedules native lock-screen alarms with warm Rhodes swell and self-healing skip recalculations.
+        Sets a morning phone reminder for your practice session. Skipped exercises are automatically prioritized next time.
       </Text>
 
       <View style={{ marginTop: 10 }}>
         <StampButton
-          label={alarmScheduled ? '✓ ALARM ARMED FOR 08:00 AM' : '⏰ ARM NEXT MORNING ALARM (08:00 AM)'}
+          label={alarmScheduled ? '✓ REMINDER SET FOR 8:00 AM' : '⏰ SET MORNING REMINDER (8:00 AM)'}
           variant={alarmScheduled ? 'secondary' : 'tertiary'}
           onPress={handleSetAlarm}
         />
