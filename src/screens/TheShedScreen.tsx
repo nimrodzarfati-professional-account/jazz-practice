@@ -220,10 +220,10 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       <View style={[styles.emptyWrap, { backgroundColor: colors.canvasBg }]}>
         <CreamBlock>
           <Text style={[{ fontFamily: typography.fontDisplay, fontSize: 18, color: colors.inkBlack, textAlign: 'center' }]}>
-            No exercises in Active Rotation match this filter.
+            No active exercises match your current settings.
           </Text>
           <Text style={[{ fontFamily: typography.fontMono, fontSize: 13, color: colors.inkMuted, marginTop: 8, textAlign: 'center' }]}>
-            Head to [ THE CRATE ] to add drills to your rotation, or [ CALL SHEET ] to adjust your faders.
+            Go to [ PRACTICE VAULT ] to activate exercises, or [ SESSION PLAN ] to adjust your time and energy level.
           </Text>
         </CreamBlock>
       </View>
@@ -295,7 +295,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             <StampBadge label={activeExercise.category.replace('_', ' ')} type={activeExercise.category} />
           </View>
           <Text style={{ fontFamily: typography.fontMonoBold, fontSize: 12, color: colors.inkBlack }}>
-            {activeExercise.allocatedMinutes}m BLOCK • URGENCY {activeExercise.urgencyScore}%
+            {activeExercise.allocatedMinutes} MIN • PRIORITY {activeExercise.urgencyScore}%
           </Text>
         </View>
 
@@ -312,7 +312,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             ]}
           >
             <Text style={{ fontFamily: typography.fontStamp, fontSize: 12, color: colors.secondary }}>
-              🎵 PRACTICE OVER STANDARD: {activeExercise.assignedStandardTitle}
+              🎵 PRACTICE WITH SONG: {activeExercise.assignedStandardTitle}
             </Text>
           </View>
         )}
@@ -336,7 +336,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
           <View style={styles.timerTopRow}>
             <View>
               <Text style={{ fontFamily: typography.fontStamp, fontSize: 10, color: colors.inkMuted }}>
-                EXERCISE TIMER ({activeExercise.allocatedMinutes} MIN SET)
+                PRACTICE TIMER ({activeExercise.allocatedMinutes} MIN)
               </Text>
               <Text style={[styles.timerDigits, { fontFamily: typography.fontMonoBold, color: colors.inkBlack }]}>
                 {mm}:{ss}
@@ -356,7 +356,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                 }}
               />
               <StampButton
-                label="✓ LOG BLOCK"
+                label="✓ MARK AS FINISHED"
                 variant="secondary"
                 size="sm"
                 onPress={handleBlockFinished}
@@ -386,7 +386,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
               </Pressable>
 
               <StampButton
-                label={isMetronomeOn ? 'STOP CLICK' : 'START CLICK'}
+                label={isMetronomeOn ? 'STOP METRONOME' : 'START METRONOME'}
                 variant={isMetronomeOn ? 'secondary' : 'tertiary'}
                 size="sm"
                 onPress={toggleMetronome}
@@ -461,7 +461,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                     color: feelMode === 'BACKBEAT_2_4' ? colors.cardSurface : colors.inkBlack,
                   }}
                 >
-                  {feelMode === 'BACKBEAT_2_4' ? '✓ 2 & 4 ONLY (JAZZ LOCK)' : '1-2-3-4 (ACCENT 2 & 4)'}
+                  {feelMode === 'BACKBEAT_2_4' ? '✓ BEATS 2 & 4 ONLY' : 'ALL 4 BEATS'}
                 </Text>
               </Pressable>
 
@@ -516,7 +516,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             onPress={handlePrevDrill}
           />
           <Text style={[{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.inkMuted }]}>
-            BLOCK {activeIndex + 1} OF {queue.length}
+            EXERCISE {activeIndex + 1} OF {queue.length}
           </Text>
           <StampButton
             label="NEXT →"
@@ -538,7 +538,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
         {activeExercise.category !== 'MAINTENANCE' && (
           <View style={{ marginTop: 14 }}>
             <StampButton
-              label="🎓 GRADUATE TO MAINTENANCE (BIND TO STANDARD)"
+              label="🎓 MOVE TO MAINTENANCE (LINK TO CURRENT SONG)"
               variant="tertiary"
               onPress={handleGraduate}
             />

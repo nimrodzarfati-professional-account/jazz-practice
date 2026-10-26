@@ -262,7 +262,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 { fontFamily: typography.fontDisplay, color: colors.inkBlack },
               ]}
             >
-              THE CRATE // REPERTOIRE
+              PRACTICE VAULT
             </Text>
             <Text
               style={[
@@ -270,7 +270,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 { fontFamily: typography.fontMono, color: colors.inkMuted },
               ]}
             >
-              {inRotationCount} Active Rotation • {vaultCount} Vault Archive
+              {inRotationCount} Active • {vaultCount} Saved in Vault
             </Text>
           </View>
 
@@ -324,7 +324,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           </View>
           <View style={{ flex: 1 }}>
             <StampButton
-              label="⚡ BULK ADD LINES"
+              label="⚡ ADD MULTIPLE"
               variant="tertiary"
               size="sm"
               onPress={() => {
@@ -337,7 +337,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
         {/* Search Input */}
         <TextInput
-          placeholder="Search drills, concepts, voicings..."
+          placeholder="Search exercises..."
           placeholderTextColor={colors.inkMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -357,7 +357,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           {(
             [
               { id: 'ALL', label: `ALL (${exercises.length})` },
-              { id: 'IN_ROTATION', label: `ROTATION (${inRotationCount})` },
+              { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
               { id: 'VAULT', label: `VAULT (${vaultCount})` },
             ] as const
           ).map((tab) => (
@@ -456,8 +456,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                     }}
                   >
                     {ex.inRotation
-                      ? `IN ROTATION • ${tenure.currentStreakLabel}`
-                      : `VAULTED • ${tenure.currentStreakLabel}`}
+                      ? `ACTIVE • ${tenure.currentStreakLabel}`
+                      : `IN VAULT • ${tenure.currentStreakLabel}`}
                   </Text>
                 </View>
               </View>
@@ -499,20 +499,20 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   color: colors.inkMuted,
                 }}
               >
-                Intensity {ex.intensity}/5 • Priority {ex.basePriority}/10
+                Energy {ex.intensity}/5 • Priority {ex.basePriority}/10
                 {ex.isKeyBased ? ` • Keys ${ex.masteredKeys.length}/12` : ''}
               </Text>
             </View>
 
             <View style={[styles.cardActions, { borderTopColor: colors.recessedSurface }]}>
               <StampButton
-                label="▶ SHED NOW"
+                label="▶ PRACTICE NOW"
                 variant="primary"
                 size="sm"
                 onPress={() => onSelectExercise(ex)}
               />
               <StampButton
-                label={ex.inRotation ? 'ARCHIVE TO VAULT' : 'PUT IN ROTATION'}
+                label={ex.inRotation ? 'MOVE TO VAULT' : 'MAKE ACTIVE'}
                 variant="tertiary"
                 size="sm"
                 onPress={() => handleToggleRotation(ex)}
@@ -524,7 +524,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 onPress={() => openEditModal(ex)}
               />
               <StampButton
-                label="✕"
+                label="DELETE"
                 variant="alert"
                 size="sm"
                 onPress={() => handleDeleteExercise(ex.id)}
@@ -709,7 +709,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                     color: isKeyBasedInput ? colors.cardSurface : colors.inkBlack,
                   }}
                 >
-                  {isKeyBasedInput ? '✓ 12-KEY TRACKED' : 'NO KEY GRID'}
+                  {isKeyBasedInput ? '✓ TRACK ALL 12 KEYS' : 'NO KEY TRACKING'}
                 </Text>
               </Pressable>
 
@@ -732,7 +732,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                     color: inRotationInput ? colors.cardSurface : colors.inkBlack,
                   }}
                 >
-                  {inRotationInput ? '✓ IN ROTATION' : 'VAULT ARCHIVE'}
+                  {inRotationInput ? '✓ ACTIVE IN PLAN' : 'SAVE TO VAULT'}
                 </Text>
               </Pressable>
             </View>
@@ -745,7 +745,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 onPress={() => setShowEditorModal(false)}
               />
               <StampButton
-                label="SAVE TO DB"
+                label="SAVE EXERCISE"
                 variant="primary"
                 size="sm"
                 onPress={handleSaveExercise}
@@ -811,7 +811,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 onPress={() => setShowBulkModal(false)}
               />
               <StampButton
-                label="ADD ALL TO DB"
+                label="ADD EXERCISES"
                 variant="primary"
                 size="sm"
                 onPress={handleBulkIngest}
@@ -884,10 +884,10 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 }}
               >
                 {syncStatus === 'connected'
-                  ? '● CONNECTED (REALTIME ACTIVE)'
+                  ? '● CLOUD SAVED'
                   : syncStatus === 'syncing'
-                  ? '↻ SYNCING WITH SUPABASE'
-                  : '○ OFFLINE / CACHED LOCALLY'}
+                  ? '↻ SYNCING'
+                  : '○ SAVED ON DEVICE'}
               </Text>
             </View>
 
