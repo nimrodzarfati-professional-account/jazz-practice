@@ -1155,6 +1155,25 @@ export function saveUserSyncState(
 ): UserSyncState {
   initDatabase();
   const current = getUserSyncState();
+
+  // Check if any field in `partial` actually changed to avoid redundant cloud writes & realtime loops
+  const hasChanged = (Object.keys(partial) as (keyof typeof partial)[]).some((key) => {
+    const nextVal = partial[key];
+    if (nextVal === undefined) return false;
+    const currVal = current[key];
+    if (Array.isArray(nextVal) && Array.isArray(currVal)) {
+      return (
+        nextVal.length !== currVal.length ||
+        nextVal.some((v, idx) => v !== currVal[idx])
+      );
+    }
+    return nextVal !== currVal;
+  });
+
+  if (!hasChanged) {
+    return current;
+  }
+
   const updated: UserSyncState = {
     ...current,
     ...partial,

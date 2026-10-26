@@ -1,13 +1,5 @@
 /**
  * CloudSyncService — Supabase-First Data Layer with Persistent Offline Mirror
- *
- * Architecture:
- * - Supabase is the primary Source of Truth for exercises, active_standard, practice_logs, and user_sync_state.
- * - Every create, update, rotate, and delete executes a direct R/W call to Supabase.
- * - Local SQLite (iOS/Android) / localStorage (Web) is kept as an exact persistent mirror
- *   so the app works seamlessly offline using the last synced version of the database.
- * - Offline mutations are queued in `pending_mutations` and automatically flushed to
- *   Supabase as soon as connectivity returns.
  */
 import { AppState, Platform } from 'react-native';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -48,6 +40,7 @@ let supabaseInstance: SupabaseClient | null = null;
 let currentConfig: CloudConfig | null = null;
 let syncStatus: SyncConnectionStatus = 'syncing';
 const statusListeners = new Set<(status: SyncConnectionStatus) => void>();
+let activeRealtimeReconnect: (() => void) | null = null;
 
 function setSyncStatus(next: SyncConnectionStatus): void {
   if (syncStatus !== next) {
@@ -70,13 +63,47 @@ export function subscribeToSyncStatus(
   };
 }
 
+function sanitizeCredential(value: string, isUrl: boolean = false): string {
+  let cleaned = (value || '').trim().replace(/^["']+|["']+$/g, '').trim();
+  if (isUrl) {
+    cleaned = cleaned.replace(/\/+$/, '');
+  }
+  return cleaned;
+}
+
+/**
+ * Returns true if the error is a PostgREST / Postgres schema, table, column, or RLS error
+ * (meaning the server IS reachable and online, not offline).
+ */
+function isSchemaOrPolicyError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const msg = String(err.message || err.details || '').toLowerCase();
+  if (
+    code.startsWith('PGRST') ||
+    code === '42P01' ||
+    code === '42703' ||
+    code === '42501' ||
+    code === '23505'
+  ) {
+    return true;
+  }
+  return (
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the') ||
+    msg.includes('row-level security') ||
+    msg.includes('permission denied')
+  );
+}
+
 export function getCloudConfig(): CloudConfig {
   if (currentConfig && currentConfig.url && currentConfig.anonKey) {
     return currentConfig;
   }
 
-  const envUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
-  const envKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+  const envUrl = sanitizeCredential(process.env.EXPO_PUBLIC_SUPABASE_URL || '', true);
+  const envKey = sanitizeCredential(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '');
 
   if (envUrl && envKey) {
     currentConfig = { url: envUrl, anonKey: envKey };
@@ -84,8 +111,8 @@ export function getCloudConfig(): CloudConfig {
   }
 
   try {
-    const savedUrl = (getAppSetting('supabase_url') || '').trim();
-    const savedKey = (getAppSetting('supabase_anon_key') || '').trim();
+    const savedUrl = sanitizeCredential(getAppSetting('supabase_url') || '', true);
+    const savedKey = sanitizeCredential(getAppSetting('supabase_anon_key') || '');
     if (savedUrl && savedKey) {
       currentConfig = { url: savedUrl, anonKey: savedKey };
       return currentConfig;
@@ -99,14 +126,17 @@ export function getCloudConfig(): CloudConfig {
 }
 
 export function saveCloudConfig(url: string, anonKey: string): void {
-  const cleanUrl = url.trim();
-  const cleanKey = anonKey.trim();
+  const cleanUrl = sanitizeCredential(url, true);
+  const cleanKey = sanitizeCredential(anonKey);
   currentConfig = { url: cleanUrl, anonKey: cleanKey };
   try {
     setAppSetting('supabase_url', cleanUrl);
     setAppSetting('supabase_anon_key', cleanKey);
   } catch {}
   supabaseInstance = null;
+  if (activeRealtimeReconnect) {
+    activeRealtimeReconnect();
+  }
 }
 
 export function isCloudConfigured(): boolean {
@@ -148,8 +178,11 @@ export function getSupabaseClient(): SupabaseClient | null {
 // Bidirectional Data Converters (App Domain <-> Supabase Postgres)
 // ==============================================================================
 
-export function exerciseToCloudRow(ex: Exercise): Record<string, any> {
-  return {
+export function exerciseToCloudRow(
+  ex: Exercise,
+  includeTenureColumns: boolean = true
+): Record<string, any> {
+  const baseRow: Record<string, any> = {
     id: ex.id,
     title: ex.title,
     description: ex.description || '',
@@ -165,11 +198,29 @@ export function exerciseToCloudRow(ex: Exercise): Record<string, any> {
     uses_active_standard: Boolean(ex.usesActiveStandard),
     last_practiced_at: ex.lastPracticedAt || null,
     skipped_count: Number(ex.skippedCount) || 0,
-    rotation_changed_at: ex.rotationChangedAt || new Date().toISOString(),
-    accumulated_in_rotation_ms: Number(ex.accumulatedInRotationMs) || 0,
-    accumulated_out_rotation_ms: Number(ex.accumulatedOutRotationMs) || 0,
     updated_at: new Date().toISOString(),
   };
+
+  if (includeTenureColumns) {
+    baseRow.rotation_changed_at = ex.rotationChangedAt || new Date().toISOString();
+    baseRow.accumulated_in_rotation_ms = Number(ex.accumulatedInRotationMs) || 0;
+    baseRow.accumulated_out_rotation_ms = Number(ex.accumulatedOutRotationMs) || 0;
+  }
+
+  return baseRow;
+}
+
+async function upsertExercisesWithFallback(
+  client: SupabaseClient,
+  exercises: Exercise[]
+): Promise<{ error: any }> {
+  const fullRows = exercises.map((ex) => exerciseToCloudRow(ex, true));
+  const { error } = await client.from('exercises').upsert(fullRows);
+  if (error && isSchemaOrPolicyError(error)) {
+    const legacyRows = exercises.map((ex) => exerciseToCloudRow(ex, false));
+    return await client.from('exercises').upsert(legacyRows);
+  }
+  return { error };
 }
 
 export function cloudRowToExercise(row: any): Exercise {
@@ -315,9 +366,7 @@ export async function pushExerciseToCloud(exercise: Exercise): Promise<void> {
   }
 
   try {
-    setSyncStatus('syncing');
-    const row = exerciseToCloudRow(exercise);
-    const { error } = await client.from('exercises').upsert(row);
+    const { error } = await upsertExercisesWithFallback(client, [exercise]);
     if (error) throw error;
     removePendingMutation(mutationId);
     setSyncStatus('connected');
@@ -330,7 +379,9 @@ export async function pushExerciseToCloud(exercise: Exercise): Promise<void> {
       payload: JSON.stringify(exercise),
       createdAt: new Date().toISOString(),
     });
-    setSyncStatus('offline');
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
   }
 }
 
@@ -351,7 +402,6 @@ export async function pushDeleteExerciseToCloud(id: string): Promise<void> {
   }
 
   try {
-    setSyncStatus('syncing');
     const { error } = await client.from('exercises').delete().eq('id', id);
     if (error) throw error;
     removePendingMutation(mutationId);
@@ -365,7 +415,9 @@ export async function pushDeleteExerciseToCloud(id: string): Promise<void> {
       payload: JSON.stringify({ id }),
       createdAt: new Date().toISOString(),
     });
-    setSyncStatus('offline');
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
   }
 }
 
@@ -386,7 +438,6 @@ export async function pushStandardToCloud(standard: ActiveStandard): Promise<voi
   }
 
   try {
-    setSyncStatus('syncing');
     const row = standardToCloudRow(standard);
     const { error } = await client.from('active_standard').upsert(row);
     if (error) throw error;
@@ -401,7 +452,9 @@ export async function pushStandardToCloud(standard: ActiveStandard): Promise<voi
       payload: JSON.stringify(standard),
       createdAt: new Date().toISOString(),
     });
-    setSyncStatus('offline');
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
   }
 }
 
@@ -423,7 +476,14 @@ export async function pushPracticeLogToCloud(log: SessionLogEntry): Promise<void
 
   try {
     const { error } = await client.from('practice_logs').upsert(practiceLogToCloudRow(log));
-    if (error) throw error;
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        // Optional table not yet migrated in Supabase; keep connection live
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
     removePendingMutation(mutationId);
     setSyncStatus('connected');
   } catch (err) {
@@ -435,7 +495,9 @@ export async function pushPracticeLogToCloud(log: SessionLogEntry): Promise<void
       payload: JSON.stringify(log),
       createdAt: new Date().toISOString(),
     });
-    setSyncStatus('offline');
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
   }
 }
 
@@ -457,7 +519,14 @@ export async function pushUserStateToCloud(state: UserSyncState): Promise<void> 
 
   try {
     const { error } = await client.from('user_sync_state').upsert(userStateToCloudRow(state));
-    if (error) throw error;
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        // Optional table not yet migrated in Supabase; do not mark DB offline
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
     removePendingMutation(mutationId);
     setSyncStatus('connected');
   } catch (err) {
@@ -469,7 +538,9 @@ export async function pushUserStateToCloud(state: UserSyncState): Promise<void> 
       payload: JSON.stringify(state),
       createdAt: new Date().toISOString(),
     });
-    setSyncStatus('offline');
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
   }
 }
 
@@ -487,30 +558,30 @@ export async function flushPendingMutations(): Promise<void> {
     try {
       if (mut.entityType === 'exercise' && mut.action === 'UPSERT') {
         const ex: Exercise = JSON.parse(mut.payload);
-        const { error } = await client.from('exercises').upsert(exerciseToCloudRow(ex));
-        if (!error) removePendingMutation(mut.id);
+        const { error } = await upsertExercisesWithFallback(client, [ex]);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       } else if (mut.entityType === 'exercise' && mut.action === 'DELETE') {
         const { id } = JSON.parse(mut.payload);
         const { error } = await client.from('exercises').delete().eq('id', id);
-        if (!error) removePendingMutation(mut.id);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       } else if (mut.entityType === 'standard' && mut.action === 'UPSERT') {
         const std: ActiveStandard = JSON.parse(mut.payload);
         const { error } = await client
           .from('active_standard')
           .upsert(standardToCloudRow(std));
-        if (!error) removePendingMutation(mut.id);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       } else if (mut.entityType === 'practice_log' && mut.action === 'UPSERT') {
         const log: SessionLogEntry = JSON.parse(mut.payload);
         const { error } = await client
           .from('practice_logs')
           .upsert(practiceLogToCloudRow(log));
-        if (!error) removePendingMutation(mut.id);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       } else if (mut.entityType === 'user_state' && mut.action === 'UPSERT') {
         const state: UserSyncState = JSON.parse(mut.payload);
         const { error } = await client
           .from('user_sync_state')
           .upsert(userStateToCloudRow(state));
-        if (!error) removePendingMutation(mut.id);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       }
     } catch {
       // Leave in queue for next connectivity window
@@ -519,11 +590,7 @@ export async function flushPendingMutations(): Promise<void> {
 }
 
 /**
- * Primary synchronization entry point:
- * 1. Flushes any pending offline writes to Supabase.
- * 2. Pulls authoritative `active_standard`, `exercises`, `practice_logs`, and `user_sync_state` from Supabase.
- * 3. Atomically mirrors Supabase into local SQLite / localStorage cache.
- * 4. If offline, keeps the last persisted local snapshot intact.
+ * Primary synchronization entry point
  */
 export async function pullAllFromCloud(): Promise<{
   success: boolean;
@@ -581,8 +648,7 @@ export async function pullAllFromCloud(): Promise<{
     if ((!exData || exData.length === 0) && !cloudBootstrapped) {
       const localExercises = getAllVaultExercises();
       if (localExercises.length > 0) {
-        const rows = localExercises.map(exerciseToCloudRow);
-        await client.from('exercises').upsert(rows);
+        await upsertExercisesWithFallback(client, localExercises);
       }
       setAppSetting('cloud_bootstrapped_v2', 'true');
       setSyncStatus('connected');
@@ -618,40 +684,44 @@ export async function pullAllFromCloud(): Promise<{
       pendingUpsertExercises
     );
 
-    // Step 5: Sync Practice Logs
+    // Step 5: Sync Practice Logs (Optional table — ignore schema errors)
     try {
-      const { data: logsData } = await client
+      const { data: logsData, error: logsError } = await client
         .from('practice_logs')
         .select('*')
         .order('practiced_at', { ascending: false })
         .limit(200);
 
-      if (logsData && logsData.length > 0) {
-        upsertLocalPracticeLogsFromCloud(logsData.map(cloudRowToPracticeLog));
-      } else {
-        const localLogs = getPracticeLogs();
-        if (localLogs.length > 0) {
-          const rows = localLogs.map(practiceLogToCloudRow);
-          await client.from('practice_logs').upsert(rows);
+      if (!logsError) {
+        if (logsData && logsData.length > 0) {
+          upsertLocalPracticeLogsFromCloud(logsData.map(cloudRowToPracticeLog));
+        } else {
+          const localLogs = getPracticeLogs();
+          if (localLogs.length > 0) {
+            const rows = localLogs.map(practiceLogToCloudRow);
+            await client.from('practice_logs').upsert(rows);
+          }
         }
       }
     } catch (logErr) {
       console.warn('[CloudSync] Practice logs sync notice:', logErr);
     }
 
-    // Step 6: Sync User Sync State (Call Sheet faders, queue, metronome, theme)
+    // Step 6: Sync User Sync State (Optional table — ignore schema errors)
     try {
-      const { data: stateData } = await client
+      const { data: stateData, error: stateError } = await client
         .from('user_sync_state')
         .select('*')
         .eq('id', 'state_1')
         .limit(1);
 
-      if (stateData && stateData.length > 0) {
-        upsertLocalUserStateFromCloud(cloudRowToUserState(stateData[0]));
-      } else {
-        const localState = getUserSyncState();
-        await client.from('user_sync_state').upsert(userStateToCloudRow(localState));
+      if (!stateError) {
+        if (stateData && stateData.length > 0) {
+          upsertLocalUserStateFromCloud(cloudRowToUserState(stateData[0]));
+        } else {
+          const localState = getUserSyncState();
+          await client.from('user_sync_state').upsert(userStateToCloudRow(localState));
+        }
       }
     } catch (stateErr) {
       console.warn('[CloudSync] User sync state notice:', stateErr);
@@ -674,7 +744,114 @@ export async function pullAllFromCloud(): Promise<{
 // ==============================================================================
 
 export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => void {
-  const client = getSupabaseClient();
+  let currentChannel: ReturnType<SupabaseClient['channel']> | null = null;
+  let currentBoundClient: SupabaseClient | null = null;
+
+  const cleanupChannel = () => {
+    if (currentBoundClient && currentChannel) {
+      try {
+        currentBoundClient.removeChannel(currentChannel);
+      } catch {}
+    }
+    currentChannel = null;
+    currentBoundClient = null;
+  };
+
+  const bindRealtimeChannel = () => {
+    cleanupChannel();
+    const client = getSupabaseClient();
+    if (!client) return;
+
+    currentBoundClient = client;
+    currentChannel = client
+      .channel('shed_realtime_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'exercises' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'DELETE') {
+              const oldId = payload.old?.id;
+              if (oldId) {
+                deleteLocalExerciseFromCloud(oldId);
+                onDataUpdated();
+              }
+            } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const row = payload.new;
+              if (row && row.id) {
+                const ex = cloudRowToExercise(row);
+                upsertLocalExerciseFromCloud(ex);
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime exercise event error:', err);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'active_standard' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const row = payload.new;
+              if (row && row.title) {
+                const std = cloudRowToStandard(row);
+                upsertLocalStandardFromCloud(std);
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime standard event error:', err);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'practice_logs' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const row = payload.new;
+              if (row && row.id) {
+                const log = cloudRowToPracticeLog(row);
+                upsertLocalPracticeLogsFromCloud([log]);
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime practice_log event error:', err);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_sync_state' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const row = payload.new;
+              if (row) {
+                const state = cloudRowToUserState(row);
+                upsertLocalUserStateFromCloud(state);
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime user_sync_state event error:', err);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setSyncStatus('connected');
+        }
+      });
+  };
+
+  activeRealtimeReconnect = bindRealtimeChannel;
+  bindRealtimeChannel();
 
   // Re-sync automatically when app returns to foreground
   const appStateSub = AppState.addEventListener('change', (nextAppState) => {
@@ -695,109 +872,15 @@ export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => voi
     window.addEventListener('online', handleOnline);
   }
 
-  if (!client) {
-    return () => {
-      appStateSub.remove();
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.removeEventListener('online', handleOnline);
-      }
-    };
-  }
-
-  const channel = client
-    .channel('shed_realtime_sync')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'exercises' },
-      (payload) => {
-        try {
-          if (payload.eventType === 'DELETE') {
-            const oldId = payload.old?.id;
-            if (oldId) {
-              deleteLocalExerciseFromCloud(oldId);
-              onDataUpdated();
-            }
-          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const row = payload.new;
-            if (row && row.id) {
-              const ex = cloudRowToExercise(row);
-              upsertLocalExerciseFromCloud(ex);
-              onDataUpdated();
-            }
-          }
-        } catch (err) {
-          console.warn('[CloudSync] realtime exercise event error:', err);
-        }
-      }
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'active_standard' },
-      (payload) => {
-        try {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const row = payload.new;
-            if (row && row.title) {
-              const std = cloudRowToStandard(row);
-              upsertLocalStandardFromCloud(std);
-              onDataUpdated();
-            }
-          }
-        } catch (err) {
-          console.warn('[CloudSync] realtime standard event error:', err);
-        }
-      }
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'practice_logs' },
-      (payload) => {
-        try {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const row = payload.new;
-            if (row && row.id) {
-              const log = cloudRowToPracticeLog(row);
-              upsertLocalPracticeLogsFromCloud([log]);
-              onDataUpdated();
-            }
-          }
-        } catch (err) {
-          console.warn('[CloudSync] realtime practice_log event error:', err);
-        }
-      }
-    )
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'user_sync_state' },
-      (payload) => {
-        try {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const row = payload.new;
-            if (row) {
-              const state = cloudRowToUserState(row);
-              upsertLocalUserStateFromCloud(state);
-              onDataUpdated();
-            }
-          }
-        } catch (err) {
-          console.warn('[CloudSync] realtime user_sync_state event error:', err);
-        }
-      }
-    )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        setSyncStatus('connected');
-      }
-    });
-
   return () => {
+    if (activeRealtimeReconnect === bindRealtimeChannel) {
+      activeRealtimeReconnect = null;
+    }
     appStateSub.remove();
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.removeEventListener('online', handleOnline);
     }
-    try {
-      client.removeChannel(channel);
-    } catch {}
+    cleanupChannel();
   };
 }
 

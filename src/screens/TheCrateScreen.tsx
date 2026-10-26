@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import {
   Exercise,
   ExerciseCategory,
@@ -52,13 +53,15 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   onRefreshQueue,
 }) => {
   const { colors, typography } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
+
   const [exercises, setExercises] = useState<Exercise[]>(() => getAllVaultExercises());
   const [rotationFilter, setRotationFilter] = useState<RotationFilter>('ALL');
   const [contextFilter, setContextFilter] = useState<ContextFilter>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [syncStatus, setSyncStatus] = useState<SyncConnectionStatus>(() => getSyncStatus());
 
-  // Add / Edit Exercise Modal State
+  // Editor Modal State
   const [showEditorModal, setShowEditorModal] = useState(false);
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [titleInput, setTitleInput] = useState('');
@@ -67,12 +70,10 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const [categoryInput, setCategoryInput] = useState<ExerciseCategory>('NEW_CONCEPT');
   const [durationInput, setDurationInput] = useState('15');
   const [bpmInput, setBpmInput] = useState('120');
-  const [intensityInput, setIntensityInput] = useState<number>(3);
-  const [priorityInput, setPriorityInput] = useState<number>(7);
-  const [isKeyBasedInput, setIsKeyBasedInput] = useState<boolean>(true);
-  const [inRotationInput, setInRotationInput] = useState<boolean>(true);
+  const [isKeyBasedInput, setIsKeyBasedInput] = useState(true);
+  const [inRotationInput, setInRotationInput] = useState(true);
 
-  // Bulk Add Modal State
+  // Bulk Ingest Modal State
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkRawText, setBulkRawText] = useState('');
 
@@ -81,25 +82,21 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const [cloudUrl, setCloudUrl] = useState('');
   const [cloudKey, setCloudKey] = useState('');
 
-  const reloadLocalExercises = useCallback(() => {
+  // Refresh exercises from database
+  const reloadExercises = useCallback(() => {
     setExercises(getAllVaultExercises());
   }, []);
 
+  // Listen to cloud status changes & external sync updates
   useEffect(() => {
-    reloadLocalExercises();
-    const unsubStatus = subscribeToSyncStatus((status) => {
+    const unsubscribe = subscribeToSyncStatus((status) => {
       setSyncStatus(status);
-      reloadLocalExercises();
+      reloadExercises();
     });
     return () => {
-      unsubStatus();
+      unsubscribe();
     };
-  }, [reloadLocalExercises]);
-
-  const syncAfterMutation = useCallback(() => {
-    reloadLocalExercises();
-    onRefreshQueue();
-  }, [reloadLocalExercises, onRefreshQueue]);
+  }, [reloadExercises]);
 
   const openCloudModal = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -115,9 +112,14 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     setShowCloudModal(false);
     const res = await pullAllFromCloud();
     if (res.success) {
-      reloadLocalExercises();
+      reloadExercises();
       onRefreshQueue();
     }
+  };
+
+  const syncAfterMutation = () => {
+    reloadExercises();
+    onRefreshQueue();
   };
 
   const openCreateModal = () => {
@@ -129,8 +131,6 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     setCategoryInput('NEW_CONCEPT');
     setDurationInput('15');
     setBpmInput('120');
-    setIntensityInput(3);
-    setPriorityInput(7);
     setIsKeyBasedInput(true);
     setInRotationInput(true);
     setShowEditorModal(true);
@@ -140,13 +140,11 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditingExerciseId(ex.id);
     setTitleInput(ex.title);
-    setDescInput(ex.description);
+    setDescInput(ex.description || '');
     setContextInput(ex.context);
     setCategoryInput(ex.category);
     setDurationInput(String(ex.durationMinutes));
     setBpmInput(String(ex.currentBpm));
-    setIntensityInput(ex.intensity);
-    setPriorityInput(ex.basePriority);
     setIsKeyBasedInput(ex.isKeyBased);
     setInRotationInput(ex.inRotation);
     setShowEditorModal(true);
@@ -168,8 +166,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
         context: contextInput,
         category: categoryInput,
         durationMinutes: parsedDuration,
-        intensity: intensityInput,
-        basePriority: priorityInput,
+        intensity: 3,
+        basePriority: 5,
         currentBpm: parsedBpm,
         isKeyBased: isKeyBasedInput,
         usesActiveStandard,
@@ -183,8 +181,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
         category: categoryInput,
         inRotation: inRotationInput,
         durationMinutes: parsedDuration,
-        intensity: intensityInput,
-        basePriority: priorityInput,
+        intensity: 3,
+        basePriority: 5,
         currentBpm: parsedBpm,
         isKeyBased: isKeyBasedInput,
         masteredKeys: [],
@@ -251,295 +249,333 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const inRotationCount = exercises.filter((e) => e.inRotation).length;
   const vaultCount = exercises.length - inRotationCount;
 
-  return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
-      <CreamBlock>
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[
-                styles.title,
-                { fontFamily: typography.fontDisplay, color: colors.inkBlack },
-              ]}
-            >
-              PRACTICE VAULT
-            </Text>
-            <Text
-              style={[
-                styles.subtitle,
-                { fontFamily: typography.fontMono, color: colors.inkMuted },
-              ]}
-            >
-              {inRotationCount} Active • {vaultCount} Saved in Vault
-            </Text>
-          </View>
+  const renderExerciseCard = (ex: Exercise) => {
+    const tenure = getRotationTenureStats(ex);
+    return (
+      <View key={ex.id} style={isDesktop ? styles.desktopCardCell : undefined}>
+        <CreamBlock>
+          <View style={styles.cardTopRow}>
+            <View style={styles.badgesRow}>
+              <StampBadge label={ex.context} type={ex.context} />
+              <StampBadge
+                label={ex.category.replace('_', ' ')}
+                type={ex.category}
+              />
+              <View
+                style={[
+                  styles.tenureBadge,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: ex.inRotation
+                      ? colors.recessedSurface
+                      : colors.cardSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fontMonoBold,
+                    fontSize: 10,
+                    color: colors.inkBlack,
+                  }}
+                >
+                  {ex.inRotation
+                    ? `ACTIVE • ${tenure.currentStreakLabel}`
+                    : `IN VAULT • ${tenure.currentStreakLabel}`}
+                </Text>
+              </View>
+            </View>
 
-          {/* Live Database Status Indicator (Tap to open credentials config) */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Cloud database sync status and settings"
-            onPress={openCloudModal}
-            style={[
-              styles.statusPill,
-              {
-                borderColor: colors.inkBlack,
-                backgroundColor:
-                  syncStatus === 'connected'
-                    ? colors.recessedSurface
-                    : colors.cardSurface,
-              },
-            ]}
-          >
             <Text
               style={{
-                fontFamily: typography.fontStamp,
-                fontSize: 10,
-                letterSpacing: 0.8,
-                color:
-                  syncStatus === 'connected'
-                    ? colors.primary
-                    : syncStatus === 'syncing'
-                    ? colors.tertiary
-                    : colors.inkMuted,
+                fontFamily: typography.fontMonoBold,
+                fontSize: 12,
+                color: colors.inkBlack,
               }}
             >
-              {syncStatus === 'connected'
-                ? '● LIVE DB'
-                : syncStatus === 'syncing'
-                ? '↻ SYNCING'
-                : '○ OFFLINE CACHE'}
+              {ex.durationMinutes}m • ♩{ex.currentBpm}
             </Text>
-          </Pressable>
-        </View>
+          </View>
 
-        {/* Action Bar: Direct Add & Bulk Add */}
-        <View style={styles.actionRow}>
-          <View style={{ flex: 1 }}>
+          <Text
+            style={[
+              styles.cardTitle,
+              { fontFamily: typography.fontHeading, color: colors.inkBlack },
+            ]}
+          >
+            {ex.title}
+          </Text>
+
+          <Text
+            style={[
+              styles.cardDesc,
+              { fontFamily: typography.fontMono, color: colors.inkMuted },
+            ]}
+          >
+            {ex.description}
+          </Text>
+
+          <View style={styles.metaStatsRow}>
+            <Text
+              style={{
+                fontFamily: typography.fontMono,
+                fontSize: 11,
+                color: colors.inkMuted,
+              }}
+            >
+              Energy {ex.intensity}/5 • Priority {ex.basePriority}/10
+              {ex.isKeyBased ? ` • Keys ${ex.masteredKeys.length}/12` : ''}
+            </Text>
+          </View>
+
+          <View style={[styles.cardActions, { borderTopColor: colors.recessedSurface }]}>
             <StampButton
-              label="+ NEW EXERCISE"
+              label="▶ PRACTICE NOW"
               variant="primary"
               size="sm"
-              onPress={openCreateModal}
+              onPress={() => onSelectExercise(ex)}
             />
-          </View>
-          <View style={{ flex: 1 }}>
             <StampButton
-              label="⚡ ADD MULTIPLE"
+              label={ex.inRotation ? 'MOVE TO VAULT' : 'MAKE ACTIVE'}
               variant="tertiary"
               size="sm"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowBulkModal(true);
-              }}
+              onPress={() => handleToggleRotation(ex)}
             />
+            <StampButton
+              label="EDIT"
+              variant="tertiary"
+              size="sm"
+              onPress={() => openEditModal(ex)}
+            />
+            <StampButton
+              label="DELETE"
+              variant="alert"
+              size="sm"
+              onPress={() => handleDeleteExercise(ex.id)}
+            />
+          </View>
+        </CreamBlock>
+      </View>
+    );
+  };
+
+  /* ============================================================
+   * DESKTOP TWO-PANE WORKSTATION
+   * ============================================================ */
+  if (isDesktop) {
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.canvasBg }]}
+        contentContainerStyle={styles.desktopScrollContent}
+      >
+        <View style={styles.desktopWorkspace}>
+          {/* Header Banner */}
+          <CreamBlock>
+            <View style={styles.headerRow}>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.title,
+                    { fontFamily: typography.fontDisplay, color: colors.inkBlack },
+                  ]}
+                >
+                  PRACTICE VAULT
+                </Text>
+                <Text
+                  style={[
+                    styles.subtitle,
+                    { fontFamily: typography.fontMono, color: colors.inkMuted },
+                  ]}
+                >
+                  {inRotationCount} Active • {vaultCount} Saved in Vault • {exercises.length} Total Drills
+                </Text>
+              </View>
+
+              {/* Live Database Status Indicator */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cloud database sync status and settings"
+                onPress={openCloudModal}
+                style={[
+                  styles.statusPill,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor:
+                      syncStatus === 'connected'
+                        ? colors.recessedSurface
+                        : colors.cardSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 10,
+                    letterSpacing: 0.8,
+                    color:
+                      syncStatus === 'connected'
+                        ? colors.primary
+                        : syncStatus === 'syncing'
+                        ? colors.tertiary
+                        : colors.inkMuted,
+                  }}
+                >
+                  {syncStatus === 'connected'
+                    ? '● LIVE DB'
+                    : syncStatus === 'syncing'
+                    ? '↻ SYNCING'
+                    : '○ OFFLINE CACHE'}
+                </Text>
+              </Pressable>
+            </View>
+          </CreamBlock>
+
+          <View style={styles.desktopCrateBody}>
+            {/* Left Filter & Action Rail */}
+            <View style={styles.desktopFilterRail}>
+              <CreamBlock>
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted }]}>
+                  ACTIONS
+                </Text>
+                <View style={{ gap: 8, marginBottom: 16 }}>
+                  <StampButton
+                    label="+ NEW EXERCISE"
+                    variant="primary"
+                    size="sm"
+                    onPress={openCreateModal}
+                  />
+                  <StampButton
+                    label="⚡ ADD MULTIPLE"
+                    variant="tertiary"
+                    size="sm"
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setShowBulkModal(true);
+                    }}
+                  />
+                </View>
+
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted }]}>
+                  ROTATION STATUS
+                </Text>
+                <View style={styles.railGroup}>
+                  {(
+                    [
+                      { id: 'ALL', label: `ALL (${exercises.length})` },
+                      { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
+                      { id: 'VAULT', label: `VAULT (${vaultCount})` },
+                    ] as const
+                  ).map((tab) => (
+                    <Pressable
+                      key={tab.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Filter ${tab.label}`}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setRotationFilter(tab.id);
+                      }}
+                      style={[
+                        styles.railBtn,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            rotationFilter === tab.id ? colors.primary : colors.cardSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontStamp,
+                          fontSize: 11,
+                          color: rotationFilter === tab.id ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {tab.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.railLabel, { fontFamily: typography.fontStamp, color: colors.inkMuted, marginTop: 12 }]}>
+                  MUSICAL CONTEXT
+                </Text>
+                <View style={styles.railGroup}>
+                  {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
+                    <Pressable
+                      key={ctx}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Filter context ${ctx}`}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setContextFilter(ctx);
+                      }}
+                      style={[
+                        styles.railBtn,
+                        {
+                          borderColor: colors.inkBlack,
+                          backgroundColor:
+                            contextFilter === ctx ? colors.tertiary : colors.cardSurface,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontFamily: typography.fontStamp,
+                          fontSize: 11,
+                          color: contextFilter === ctx ? colors.cardSurface : colors.inkBlack,
+                        }}
+                      >
+                        {ctx}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </CreamBlock>
+            </View>
+
+            {/* Right Pane: Search Bar & Cards Grid */}
+            <View style={{ flex: 1 }}>
+              <TextInput
+                placeholder="Search tunes, licks, or concepts..."
+                placeholderTextColor={colors.inkMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={[
+                  styles.searchInput,
+                  {
+                    fontFamily: typography.fontMono,
+                    borderColor: colors.inkBlack,
+                    backgroundColor: colors.cardSurface,
+                    color: colors.textDark,
+                  },
+                ]}
+              />
+
+              <View style={styles.desktopCardsGrid}>
+                {filteredExercises.map(renderExerciseCard)}
+              </View>
+            </View>
           </View>
         </View>
 
-        {/* Search Input */}
-        <TextInput
-          placeholder="Search exercises..."
-          placeholderTextColor={colors.inkMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          style={[
-            styles.searchInput,
-            {
-              fontFamily: typography.fontMono,
-              borderColor: colors.inkBlack,
-              backgroundColor: colors.cardSurface,
-              color: colors.textDark,
-            },
-          ]}
-        />
+        {/* Editor Modal */}
+        {renderEditorModal()}
+        {/* Bulk Add Modal */}
+        {renderBulkModal()}
+        {/* Cloud Modal */}
+        {renderCloudModal()}
+      </ScrollView>
+    );
+  }
 
-        {/* Rotation Filter Tabs */}
-        <View style={styles.filterGroup}>
-          {(
-            [
-              { id: 'ALL', label: `ALL (${exercises.length})` },
-              { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
-              { id: 'VAULT', label: `VAULT (${vaultCount})` },
-            ] as const
-          ).map((tab) => (
-            <Pressable
-              key={tab.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Filter ${tab.label}`}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setRotationFilter(tab.id);
-              }}
-              style={[
-                styles.filterTab,
-                {
-                  borderColor: colors.inkBlack,
-                  backgroundColor:
-                    rotationFilter === tab.id ? colors.primary : colors.recessedSurface,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  fontFamily: typography.fontStamp,
-                  fontSize: 11,
-                  color: rotationFilter === tab.id ? colors.cardSurface : colors.inkBlack,
-                }}
-              >
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Context Filter Row */}
-        <View style={[styles.filterGroup, { marginTop: 6 }]}>
-          {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
-            <Pressable
-              key={ctx}
-              accessibilityRole="button"
-              accessibilityLabel={`Filter context ${ctx}`}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setContextFilter(ctx);
-              }}
-              style={[
-                styles.filterTab,
-                {
-                  borderColor: colors.inkBlack,
-                  backgroundColor:
-                    contextFilter === ctx ? colors.tertiary : colors.cardSurface,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  fontFamily: typography.fontStamp,
-                  fontSize: 10,
-                  color: contextFilter === ctx ? colors.cardSurface : colors.inkBlack,
-                }}
-              >
-                {ctx}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </CreamBlock>
-
-      {/* Exercise Cards List */}
-      {filteredExercises.map((ex) => {
-        const tenure = getRotationTenureStats(ex);
-        return (
-          <CreamBlock key={ex.id}>
-            <View style={styles.cardTopRow}>
-              <View style={styles.badgesRow}>
-                <StampBadge label={ex.context} type={ex.context} />
-                <StampBadge
-                  label={ex.category.replace('_', ' ')}
-                  type={ex.category}
-                />
-                <View
-                  style={[
-                    styles.tenureBadge,
-                    {
-                      borderColor: colors.inkBlack,
-                      backgroundColor: ex.inRotation
-                        ? colors.recessedSurface
-                        : colors.cardSurface,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      fontFamily: typography.fontMonoBold,
-                      fontSize: 10,
-                      color: colors.inkBlack,
-                    }}
-                  >
-                    {ex.inRotation
-                      ? `ACTIVE • ${tenure.currentStreakLabel}`
-                      : `IN VAULT • ${tenure.currentStreakLabel}`}
-                  </Text>
-                </View>
-              </View>
-
-              <Text
-                style={{
-                  fontFamily: typography.fontMonoBold,
-                  fontSize: 12,
-                  color: colors.inkBlack,
-                }}
-              >
-                {ex.durationMinutes}m • ♩{ex.currentBpm}
-              </Text>
-            </View>
-
-            <Text
-              style={[
-                styles.cardTitle,
-                { fontFamily: typography.fontHeading, color: colors.inkBlack },
-              ]}
-            >
-              {ex.title}
-            </Text>
-
-            <Text
-              style={[
-                styles.cardDesc,
-                { fontFamily: typography.fontMono, color: colors.inkMuted },
-              ]}
-            >
-              {ex.description}
-            </Text>
-
-            <View style={styles.metaStatsRow}>
-              <Text
-                style={{
-                  fontFamily: typography.fontMono,
-                  fontSize: 11,
-                  color: colors.inkMuted,
-                }}
-              >
-                Energy {ex.intensity}/5 • Priority {ex.basePriority}/10
-                {ex.isKeyBased ? ` • Keys ${ex.masteredKeys.length}/12` : ''}
-              </Text>
-            </View>
-
-            <View style={[styles.cardActions, { borderTopColor: colors.recessedSurface }]}>
-              <StampButton
-                label="▶ PRACTICE NOW"
-                variant="primary"
-                size="sm"
-                onPress={() => onSelectExercise(ex)}
-              />
-              <StampButton
-                label={ex.inRotation ? 'MOVE TO VAULT' : 'MAKE ACTIVE'}
-                variant="tertiary"
-                size="sm"
-                onPress={() => handleToggleRotation(ex)}
-              />
-              <StampButton
-                label="EDIT"
-                variant="tertiary"
-                size="sm"
-                onPress={() => openEditModal(ex)}
-              />
-              <StampButton
-                label="DELETE"
-                variant="alert"
-                size="sm"
-                onPress={() => handleDeleteExercise(ex.id)}
-              />
-            </View>
-          </CreamBlock>
-        );
-      })}
-
-      {/* Add / Edit Exercise Modal */}
+  function renderEditorModal() {
+    return (
       <Modal visible={showEditorModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View
             style={[
               styles.modalBox,
+              isDesktop && styles.modalBoxDesktop,
               { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
             ]}
           >
@@ -754,13 +790,17 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           </View>
         </View>
       </Modal>
+    );
+  }
 
-      {/* Bulk Add Modal */}
+  function renderBulkModal() {
+    return (
       <Modal visible={showBulkModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View
             style={[
               styles.modalBox,
+              isDesktop && styles.modalBoxDesktop,
               { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
             ]}
           >
@@ -785,7 +825,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
             <TextInput
               placeholder={
-                'Drop 3 Shells | Voice leading on strings 2-3-4-6 | 15m | 110bpm | #comping\\nGiant Steps Matrix | Digital patterns | 20m | 150bpm | #soloing'
+                'Drop 3 Shells | Voice leading on strings 2-3-4-6 | 15m | 110bpm | #comping\nGiant Steps Matrix | Digital patterns | 20m | 150bpm | #soloing'
               }
               placeholderTextColor={colors.inkMuted}
               value={bulkRawText}
@@ -820,13 +860,17 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           </View>
         </View>
       </Modal>
+    );
+  }
 
-      {/* Cloud Database Connection Modal */}
+  function renderCloudModal() {
+    return (
       <Modal visible={showCloudModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View
             style={[
               styles.modalBox,
+              isDesktop && styles.modalBoxDesktop,
               {
                 backgroundColor: colors.cardSurface,
                 borderColor: colors.inkBlack,
@@ -959,6 +1003,193 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
           </View>
         </View>
       </Modal>
+    );
+  }
+
+  /* ============================================================
+   * MOBILE SINGLE-COLUMN STACK
+   * ============================================================ */
+  return (
+    <ScrollView style={[styles.container, { backgroundColor: colors.canvasBg }]}>
+      <CreamBlock>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[
+                styles.title,
+                { fontFamily: typography.fontDisplay, color: colors.inkBlack },
+              ]}
+            >
+              PRACTICE VAULT
+            </Text>
+            <Text
+              style={[
+                styles.subtitle,
+                { fontFamily: typography.fontMono, color: colors.inkMuted },
+              ]}
+            >
+              {inRotationCount} Active • {vaultCount} Saved in Vault
+            </Text>
+          </View>
+
+          {/* Live Database Status Indicator */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cloud database sync status and settings"
+            onPress={openCloudModal}
+            style={[
+              styles.statusPill,
+              {
+                borderColor: colors.inkBlack,
+                backgroundColor:
+                  syncStatus === 'connected'
+                    ? colors.recessedSurface
+                    : colors.cardSurface,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontFamily: typography.fontStamp,
+                fontSize: 10,
+                letterSpacing: 0.8,
+                color:
+                  syncStatus === 'connected'
+                    ? colors.primary
+                    : syncStatus === 'syncing'
+                    ? colors.tertiary
+                    : colors.inkMuted,
+              }}
+            >
+              {syncStatus === 'connected'
+                ? '● LIVE DB'
+                : syncStatus === 'syncing'
+                ? '↻ SYNCING'
+                : '○ OFFLINE CACHE'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Action Bar: Direct Add & Bulk Add */}
+        <View style={styles.actionRow}>
+          <View style={{ flex: 1 }}>
+            <StampButton
+              label="+ NEW EXERCISE"
+              variant="primary"
+              size="sm"
+              onPress={openCreateModal}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <StampButton
+              label="⚡ ADD MULTIPLE"
+              variant="tertiary"
+              size="sm"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowBulkModal(true);
+              }}
+            />
+          </View>
+        </View>
+
+        {/* Search Input */}
+        <TextInput
+          placeholder="Search exercises..."
+          placeholderTextColor={colors.inkMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          style={[
+            styles.searchInput,
+            {
+              fontFamily: typography.fontMono,
+              borderColor: colors.inkBlack,
+              backgroundColor: colors.cardSurface,
+              color: colors.textDark,
+            },
+          ]}
+        />
+
+        {/* Rotation Filter Tabs */}
+        <View style={styles.filterGroup}>
+          {(
+            [
+              { id: 'ALL', label: `ALL (${exercises.length})` },
+              { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
+              { id: 'VAULT', label: `VAULT (${vaultCount})` },
+            ] as const
+          ).map((tab) => (
+            <Pressable
+              key={tab.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter ${tab.label}`}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setRotationFilter(tab.id);
+              }}
+              style={[
+                styles.filterTab,
+                {
+                  borderColor: colors.inkBlack,
+                  backgroundColor:
+                    rotationFilter === tab.id ? colors.primary : colors.recessedSurface,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontFamily: typography.fontStamp,
+                  fontSize: 11,
+                  color: rotationFilter === tab.id ? colors.cardSurface : colors.inkBlack,
+                }}
+              >
+                {tab.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Context Filter Row */}
+        <View style={[styles.filterGroup, { marginTop: 6 }]}>
+          {(['ALL', 'SOLOING', 'COMPING'] as const).map((ctx) => (
+            <Pressable
+              key={ctx}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter context ${ctx}`}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setContextFilter(ctx);
+              }}
+              style={[
+                styles.filterTab,
+                {
+                  borderColor: colors.inkBlack,
+                  backgroundColor:
+                    contextFilter === ctx ? colors.tertiary : colors.cardSurface,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontFamily: typography.fontStamp,
+                  fontSize: 10,
+                  color: contextFilter === ctx ? colors.cardSurface : colors.inkBlack,
+                }}
+              >
+                {ctx}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </CreamBlock>
+
+      {/* Exercise Cards List */}
+      {filteredExercises.map(renderExerciseCard)}
+
+      {/* Modals */}
+      {renderEditorModal()}
+      {renderBulkModal()}
+      {renderCloudModal()}
     </ScrollView>
   );
 };
@@ -968,6 +1199,50 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
   },
+  /* Desktop Layout Styles */
+  desktopScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  desktopWorkspace: {
+    width: '100%',
+    maxWidth: 1240,
+  },
+  desktopCrateBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
+    marginTop: 10,
+  },
+  desktopFilterRail: {
+    width: 270,
+  },
+  railLabel: {
+    fontSize: 10,
+    letterSpacing: 1.2,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  railGroup: {
+    gap: 6,
+    marginBottom: 12,
+  },
+  railBtn: {
+    borderWidth: 1.5,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  desktopCardsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  desktopCardCell: {
+    width: '49%',
+    marginBottom: 10,
+  },
+  /* Mobile & Shared Styles */
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1051,11 +1326,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.72)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 16,
   },
   modalBox: {
+    width: '100%',
     borderWidth: 3,
     padding: 16,
+  },
+  modalBoxDesktop: {
+    maxWidth: 560,
   },
   modalTitle: {
     fontSize: 19,

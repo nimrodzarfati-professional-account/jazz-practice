@@ -5,10 +5,10 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
-  useWindowDimensions,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import {
   ActiveStandard,
   MusicalContext,
@@ -106,8 +106,7 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
   onOpenRotateStandardModal,
 }) => {
   const { colors, typography } = useTheme();
-  const { width } = useWindowDimensions();
-  const isDesktop = width >= 860;
+  const { isDesktop } = useResponsiveLayout();
 
   const [alarmScheduled, setAlarmScheduled] = useState(false);
   const [practiceLogs, setPracticeLogs] = useState<SessionLogEntry[]>(() => getPracticeLogs());

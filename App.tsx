@@ -1,20 +1,17 @@
 /**
  * Shed Engine V2 — Main Application Entrypoint
  * 
- * Strict All-Cream Vintage Press Architecture:
- * - 1-2 Week Active Standard cycle & rotation modal
- * - In-Rotation vs. Repertoire Vault synchronization
- * - Dynamic Urgency Knapsack Scheduler with alternating context packing
- * - Exercise-driven timer countdown with studio Rhodes chimes
- * - Hard OS lock-screen alarms with self-healing cancel handlers
+ * Responsive Dual-Architecture:
+ * - Mobile: Bottom Master Navigation Dock + Single-Column Stack
+ * - Desktop / Computer: Left Vintage Studio Rack Sidebar + Centered Workstation Canvas
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
-  Text,
   View,
   SafeAreaView,
   TouchableOpacity,
+  Text,
   Modal,
   TextInput,
   ScrollView,
@@ -25,22 +22,22 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { useResponsiveLayout } from './src/hooks/useResponsiveLayout';
 import { TheShedScreen } from './src/screens/TheShedScreen';
 import { TheCrateScreen } from './src/screens/TheCrateScreen';
 import { TheCallSheetScreen } from './src/screens/TheCallSheetScreen';
 import { StampButton } from './src/components/StampButton';
 import {
   ActiveStandard,
-  PitchKey,
   MusicalContext,
+  PitchKey,
   ScoredExercise,
   Exercise,
-  CIRCLE_OF_FIFTHS,
 } from './src/types/models';
 import {
   getActiveStandard,
-  getRotationExercises,
   rotateActiveStandard,
+  getRotationExercises,
   initDatabase,
   getUserSyncState,
   saveUserSyncState,
@@ -51,43 +48,29 @@ import { pullAllFromCloud, subscribeToRealtimeChanges } from './src/services/Clo
 
 type TabRoute = 'shed' | 'crate' | 'callsheet';
 
+const CIRCLE_OF_FIFTHS: PitchKey[] = [
+  'C', 'F', 'Bb', 'Eb', 'Ab', 'Db',
+  'Gb', 'B', 'E', 'A', 'D', 'G',
+];
+
 const PRESET_STANDARDS: { title: string; defaultKey: PitchKey }[] = [
-  { title: 'Stella By Starlight', defaultKey: 'Bb' },
-  { title: 'Autumn Leaves', defaultKey: 'G' },
+  { title: 'Autumn Leaves', defaultKey: 'Bb' },
   { title: 'All The Things You Are', defaultKey: 'Ab' },
-  { title: 'Cherokee', defaultKey: 'Bb' },
-  { title: 'Body and Soul', defaultKey: 'Db' },
   { title: 'There Will Never Be Another You', defaultKey: 'Eb' },
-  { title: 'Someday My Prince Will Come', defaultKey: 'Bb' },
-  { title: 'Confirmation', defaultKey: 'F' },
-  { title: 'Oleo (Rhythm Changes)', defaultKey: 'Bb' },
+  { title: 'Stella by Starlight', defaultKey: 'Bb' },
+  { title: 'Blue Bossa', defaultKey: 'C' },
+  { title: 'Take The A Train', defaultKey: 'C' },
 ];
 
 function AppContent() {
   const { colors, typography, mode, toggleTheme } = useTheme();
+  const { isDesktop } = useResponsiveLayout();
+
   const [activeTab, setActiveTab] = useState<TabRoute>('shed');
   const [activeStandard, setActiveStandard] = useState<ActiveStandard>(getActiveStandard);
-  const [availableMinutes, setAvailableMinutes] = useState(() => {
-    try {
-      return getUserSyncState().availableMinutes || 30;
-    } catch {
-      return 30;
-    }
-  });
-  const [intensity, setIntensity] = useState(() => {
-    try {
-      return getUserSyncState().intensity || 3;
-    } catch {
-      return 3;
-    }
-  });
-  const [contextFilter, setContextFilter] = useState<'ALL' | MusicalContext>(() => {
-    try {
-      return getUserSyncState().contextFilter || 'ALL';
-    } catch {
-      return 'ALL';
-    }
-  });
+  const [availableMinutes, setAvailableMinutes] = useState(30);
+  const [intensity, setIntensity] = useState(3);
+  const [contextFilter, setContextFilter] = useState<'ALL' | MusicalContext>('ALL');
   const [queue, setQueue] = useState<ScoredExercise[]>([]);
 
   // Rotate Standard Modal State
@@ -106,7 +89,6 @@ function AppContent() {
     const rotationExercises = getRotationExercises();
     const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
     setQueue(newQueue);
-    saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
   }, [availableMinutes, intensity, contextFilter]);
 
   const refreshData = useCallback(() => {
@@ -130,13 +112,9 @@ function AppContent() {
 
     setQueue((prevQueue) => {
       if (prevQueue.length === 0) {
-        const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
-        saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
-        return newQueue;
+        return generateSessionQueue(rotationExercises, std, mins, ints, filter);
       }
-      const reconciled = reconcileQueueInPlace(prevQueue, rotationExercises, std, true);
-      saveUserSyncState({ activeQueueIds: reconciled.map((q) => q.id) });
-      return reconciled;
+      return reconcileQueueInPlace(prevQueue, rotationExercises, std, true);
     });
   }, [availableMinutes, intensity, contextFilter]);
 
@@ -155,9 +133,7 @@ function AppContent() {
         );
       }
       // Reconcile existing queue with preserveSessionBpm = false so edited base BPM in The Crate immediately updates
-      const reconciled = reconcileQueueInPlace(prevQueue, rotationExercises, std, false);
-      saveUserSyncState({ activeQueueIds: reconciled.map((q) => q.id) });
-      return reconciled;
+      return reconcileQueueInPlace(prevQueue, rotationExercises, std, false);
     });
   }, [availableMinutes, intensity, contextFilter]);
 
@@ -181,7 +157,6 @@ function AppContent() {
     const rotationExercises = getRotationExercises();
     const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
     setQueue(newQueue);
-    saveUserSyncState({ activeQueueIds: newQueue.map((q) => q.id) });
   }, [availableMinutes, intensity, contextFilter]);
 
   useEffect(() => {
@@ -242,153 +217,540 @@ function AppContent() {
     );
   }, []);
 
+  // Calculate active standard elapsed days for the desktop sidebar
+  const startedDate = activeStandard?.startedAt ? new Date(activeStandard.startedAt) : new Date();
+  const diffTime = Date.now() - startedDate.getTime();
+  const daysElapsed = Number.isNaN(diffTime)
+    ? 1
+    : Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1);
+  const isDueToRotate = daysElapsed >= (activeStandard?.rotationCycleDays || 14);
+  const totalQueuedMinutes = queue.reduce((acc, item) => acc + item.allocatedMinutes, 0);
+
+  const renderActiveScreen = () => {
+    if (activeTab === 'shed') {
+      return (
+        <TheShedScreen
+          queue={queue}
+          activeStandard={activeStandard}
+          onRefreshData={refreshData}
+          onOpenRotateStandardModal={() => setShowRotateModal(true)}
+          onUpdateQueueItem={handleUpdateQueueItem}
+        />
+      );
+    }
+    if (activeTab === 'crate') {
+      return (
+        <TheCrateScreen
+          onSelectExercise={handleSelectExerciseFromCrate}
+          onRefreshQueue={handleCrateRefreshQueue}
+        />
+      );
+    }
+    return (
+      <TheCallSheetScreen
+        activeStandard={activeStandard}
+        availableMinutes={availableMinutes}
+        intensity={intensity}
+        contextFilter={contextFilter}
+        previewQueue={queue}
+        onChangeMinutes={(m) => {
+          if (Number.isFinite(m) && m >= 15 && m <= 120) {
+            handleFaderChange(m, undefined, undefined);
+          }
+        }}
+        onChangeIntensity={(i) => {
+          if (Number.isFinite(i) && i >= 1 && i <= 5) {
+            handleFaderChange(undefined, i, undefined);
+          }
+        }}
+        onChangeContextFilter={(f) => {
+          handleFaderChange(undefined, undefined, f);
+        }}
+        onStartSession={() => setActiveTab('shed')}
+        onOpenRotateStandardModal={() => setShowRotateModal(true)}
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.rootContainer, { backgroundColor: colors.canvasBg }]}>
       <StatusBar style="light" />
 
-      {/* Primary Screen Area */}
-      <View style={styles.screenContainer}>
-        {activeTab === 'shed' && (
-          <TheShedScreen
-            queue={queue}
-            activeStandard={activeStandard}
-            onRefreshData={refreshData}
-            onOpenRotateStandardModal={() => setShowRotateModal(true)}
-            onUpdateQueueItem={handleUpdateQueueItem}
-          />
-        )}
-        {activeTab === 'crate' && (
-          <TheCrateScreen
-            onSelectExercise={handleSelectExerciseFromCrate}
-            onRefreshQueue={handleCrateRefreshQueue}
-          />
-        )}
-        {activeTab === 'callsheet' && (
-          <TheCallSheetScreen
-            activeStandard={activeStandard}
-            availableMinutes={availableMinutes}
-            intensity={intensity}
-            contextFilter={contextFilter}
-            previewQueue={queue}
-            onChangeMinutes={(m) => {
-              if (Number.isFinite(m) && m >= 15 && m <= 120) {
-                handleFaderChange(m, undefined, undefined);
-              }
-            }}
-            onChangeIntensity={(i) => {
-              if (Number.isFinite(i) && i >= 1 && i <= 5) {
-                handleFaderChange(undefined, i, undefined);
-              }
-            }}
-            onChangeContextFilter={(f) => {
-              handleFaderChange(undefined, undefined, f);
-            }}
-            onStartSession={() => setActiveTab('shed')}
-            onOpenRotateStandardModal={() => setShowRotateModal(true)}
-          />
-        )}
-      </View>
-
-      {/* Cream Block Master Navigation Dock */}
-      <View style={[styles.navBar, { backgroundColor: colors.cardSurface, borderTopColor: colors.inkBlack }]}>
-        <TouchableOpacity
-          style={[
-            styles.navTab,
-            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-            activeTab === 'shed' && { backgroundColor: colors.primary },
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActiveTab('shed');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text
+      {isDesktop ? (
+        /* Desktop Dual-Architecture Layout with Left Vintage Studio Rack Sidebar */
+        <View style={styles.desktopShell}>
+          <View
             style={[
-              styles.navTabText,
+              styles.desktopSidebar,
               {
-                fontFamily: typography.fontStamp,
-                color: activeTab === 'shed' ? colors.cardSurface : colors.inkBlack,
+                backgroundColor: colors.cardSurface,
+                borderColor: colors.inkBlack,
               },
             ]}
           >
-            [ TRAINING ROOM ]
-          </Text>
-        </TouchableOpacity>
+            {/* Top Brand Plate */}
+            <View style={[styles.brandPlate, { borderBottomColor: colors.inkBlack }]}>
+              <Text
+                style={[
+                  styles.brandSub,
+                  { fontFamily: typography.fontStamp, color: colors.primary },
+                ]}
+              >
+                VINTAGE STUDIO RACK
+              </Text>
+              <Text
+                style={[
+                  styles.brandTitle,
+                  { fontFamily: typography.fontDisplay, color: colors.inkBlack },
+                ]}
+              >
+                SHED ENGINE
+              </Text>
+              <Text
+                style={[
+                  styles.brandMeta,
+                  { fontFamily: typography.fontMono, color: colors.inkMuted },
+                ]}
+              >
+                V2.5 // ARCHIVE PRESS
+              </Text>
+            </View>
 
-        <TouchableOpacity
-          style={[
-            styles.navTab,
-            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-            activeTab === 'crate' && { backgroundColor: colors.primary },
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActiveTab('crate');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={[
-              styles.navTabText,
-              {
-                fontFamily: typography.fontStamp,
-                color: activeTab === 'crate' ? colors.cardSurface : colors.inkBlack,
-              },
-            ]}
-          >
-            [ PRACTICE VAULT ]
-          </Text>
-        </TouchableOpacity>
+            {/* Desktop Navigation Buttons */}
+            <View style={styles.desktopNavSection}>
+              <Text
+                style={[
+                  styles.sidebarSectionLabel,
+                  { fontFamily: typography.fontStamp, color: colors.inkMuted },
+                ]}
+              >
+                NAVIGATION
+              </Text>
 
-        <TouchableOpacity
-          style={[
-            styles.navTab,
-            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-            activeTab === 'callsheet' && { backgroundColor: colors.primary },
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActiveTab('callsheet');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={[
-              styles.navTabText,
-              {
-                fontFamily: typography.fontStamp,
-                color: activeTab === 'callsheet' ? colors.cardSurface : colors.inkBlack,
-              },
-            ]}
-          >
-            [ SESSION PLAN ]
-          </Text>
-        </TouchableOpacity>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go to Training Room"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveTab('shed');
+                }}
+                style={[
+                  styles.desktopNavBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor:
+                      activeTab === 'shed' ? colors.primary : colors.recessedSurface,
+                  },
+                ]}
+              >
+                <View style={styles.desktopNavRow}>
+                  <Text
+                    style={[
+                      styles.desktopNavCode,
+                      {
+                        fontFamily: typography.fontMonoBold,
+                        color: activeTab === 'shed' ? colors.cardSurface : colors.inkBlack,
+                      },
+                    ]}
+                  >
+                    01
+                  </Text>
+                  <View>
+                    <Text
+                      style={[
+                        styles.desktopNavTitle,
+                        {
+                          fontFamily: typography.fontStamp,
+                          color: activeTab === 'shed' ? colors.cardSurface : colors.inkBlack,
+                        },
+                      ]}
+                    >
+                      TRAINING ROOM
+                    </Text>
+                    <Text
+                      style={[
+                        styles.desktopNavSub,
+                        {
+                          fontFamily: typography.fontMono,
+                          color: activeTab === 'shed' ? colors.cardSurface : colors.inkMuted,
+                        },
+                      ]}
+                    >
+                      Active Session & Timer
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
 
-        {/* Theme Toggle Button */}
-        <TouchableOpacity
-          style={[
-            styles.navTab,
-            styles.navTabTheme,
-            { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            toggleTheme();
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.navTabText, { fontSize: 16 }]}>
-            {mode === 'default' ? '🌙' : '☀️'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go to Practice Vault"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveTab('crate');
+                }}
+                style={[
+                  styles.desktopNavBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor:
+                      activeTab === 'crate' ? colors.primary : colors.recessedSurface,
+                  },
+                ]}
+              >
+                <View style={styles.desktopNavRow}>
+                  <Text
+                    style={[
+                      styles.desktopNavCode,
+                      {
+                        fontFamily: typography.fontMonoBold,
+                        color: activeTab === 'crate' ? colors.cardSurface : colors.inkBlack,
+                      },
+                    ]}
+                  >
+                    02
+                  </Text>
+                  <View>
+                    <Text
+                      style={[
+                        styles.desktopNavTitle,
+                        {
+                          fontFamily: typography.fontStamp,
+                          color: activeTab === 'crate' ? colors.cardSurface : colors.inkBlack,
+                        },
+                      ]}
+                    >
+                      PRACTICE VAULT
+                    </Text>
+                    <Text
+                      style={[
+                        styles.desktopNavSub,
+                        {
+                          fontFamily: typography.fontMono,
+                          color: activeTab === 'crate' ? colors.cardSurface : colors.inkMuted,
+                        },
+                      ]}
+                    >
+                      Tune Archive & Drills
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go to Session Plan"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveTab('callsheet');
+                }}
+                style={[
+                  styles.desktopNavBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor:
+                      activeTab === 'callsheet' ? colors.primary : colors.recessedSurface,
+                  },
+                ]}
+              >
+                <View style={styles.desktopNavRow}>
+                  <Text
+                    style={[
+                      styles.desktopNavCode,
+                      {
+                        fontFamily: typography.fontMonoBold,
+                        color:
+                          activeTab === 'callsheet' ? colors.cardSurface : colors.inkBlack,
+                      },
+                    ]}
+                  >
+                    03
+                  </Text>
+                  <View>
+                    <Text
+                      style={[
+                        styles.desktopNavTitle,
+                        {
+                          fontFamily: typography.fontStamp,
+                          color:
+                            activeTab === 'callsheet' ? colors.cardSurface : colors.inkBlack,
+                        },
+                      ]}
+                    >
+                      SESSION PLAN
+                    </Text>
+                    <Text
+                      style={[
+                        styles.desktopNavSub,
+                        {
+                          fontFamily: typography.fontMono,
+                          color:
+                            activeTab === 'callsheet' ? colors.cardSurface : colors.inkMuted,
+                        },
+                      ]}
+                    >
+                      Scheduler & Alarms
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            </View>
+
+            {/* Current Song Card */}
+            <View
+              style={[
+                styles.sidebarStandardBox,
+                {
+                  backgroundColor: colors.recessedSurface,
+                  borderColor: colors.inkBlack,
+                },
+              ]}
+            >
+              <View style={styles.sidebarStdHeader}>
+                <Text
+                  style={[
+                    styles.sidebarStdLabel,
+                    { fontFamily: typography.fontStamp, color: colors.secondary },
+                  ]}
+                >
+                  CURRENT SONG
+                </Text>
+                <Text
+                  style={[
+                    styles.sidebarStdDays,
+                    {
+                      fontFamily: typography.fontMonoBold,
+                      color: isDueToRotate ? colors.primary : colors.inkBlack,
+                    },
+                  ]}
+                >
+                  DAY {daysElapsed}/{activeStandard?.rotationCycleDays || 14}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.sidebarStdTitle,
+                  { fontFamily: typography.fontDisplay, color: colors.inkBlack },
+                ]}
+                numberOfLines={2}
+              >
+                {activeStandard?.title} ({activeStandard?.defaultKey})
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change song"
+                onPress={() => setShowRotateModal(true)}
+                style={[
+                  styles.sidebarRotateBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: colors.cardSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.sidebarRotateBtnText,
+                    { fontFamily: typography.fontStamp, color: colors.inkBlack },
+                  ]}
+                >
+                  CHANGE SONG →
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Practice Telemetry Box */}
+            <View
+              style={[
+                styles.sidebarTelemetryBox,
+                {
+                  backgroundColor: colors.canvasBg,
+                  borderColor: colors.inkBlack,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.sidebarSectionLabel,
+                  { fontFamily: typography.fontStamp, color: colors.inkMuted },
+                ]}
+              >
+                SESSION TELEMETRY
+              </Text>
+              <Text
+                style={[
+                  styles.sidebarTelemetryLine,
+                  { fontFamily: typography.fontMono, color: colors.inkBlack },
+                ]}
+              >
+                • {queue.length} Exercises Queued
+              </Text>
+              <Text
+                style={[
+                  styles.sidebarTelemetryLine,
+                  { fontFamily: typography.fontMono, color: colors.inkBlack },
+                ]}
+              >
+                • {totalQueuedMinutes} Min Practice Set
+              </Text>
+              <Text
+                style={[
+                  styles.sidebarTelemetryLine,
+                  { fontFamily: typography.fontMono, color: colors.inkBlack },
+                ]}
+              >
+                • Target Context: {contextFilter}
+              </Text>
+            </View>
+
+            {/* Bottom Theme Switcher */}
+            <View style={styles.sidebarFooter}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Toggle Dark and Warm theme mode"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  toggleTheme();
+                }}
+                style={[
+                  styles.desktopThemeBtn,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: colors.recessedSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.desktopThemeText,
+                    { fontFamily: typography.fontStamp, color: colors.inkBlack },
+                  ]}
+                >
+                  {mode === 'default' ? '🌙 DARK ROOM' : '☀️ WARM PRESS'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Main Desktop Workstation Canvas */}
+          <View style={styles.desktopMainArea}>
+            {renderActiveScreen()}
+          </View>
+        </View>
+      ) : (
+        /* Mobile Single-Column Stack */
+        <>
+          <View style={styles.screenContainer}>
+            {renderActiveScreen()}
+          </View>
+
+          {/* Cream Block Master Navigation Dock */}
+          <View style={[styles.navBar, { backgroundColor: colors.cardSurface, borderTopColor: colors.inkBlack }]}>
+            <TouchableOpacity
+              style={[
+                styles.navTab,
+                { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                activeTab === 'shed' && { backgroundColor: colors.primary },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveTab('shed');
+              }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.navTabText,
+                  {
+                    fontFamily: typography.fontStamp,
+                    color: activeTab === 'shed' ? colors.cardSurface : colors.inkBlack,
+                  },
+                ]}
+              >
+                [ TRAINING ROOM ]
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.navTab,
+                { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                activeTab === 'crate' && { backgroundColor: colors.primary },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveTab('crate');
+              }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.navTabText,
+                  {
+                    fontFamily: typography.fontStamp,
+                    color: activeTab === 'crate' ? colors.cardSurface : colors.inkBlack,
+                  },
+                ]}
+              >
+                [ PRACTICE VAULT ]
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.navTab,
+                { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+                activeTab === 'callsheet' && { backgroundColor: colors.primary },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveTab('callsheet');
+              }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.navTabText,
+                  {
+                    fontFamily: typography.fontStamp,
+                    color: activeTab === 'callsheet' ? colors.cardSurface : colors.inkBlack,
+                  },
+                ]}
+              >
+                [ SESSION PLAN ]
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.navTab,
+                styles.navTabTheme,
+                { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                toggleTheme();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.navTabText, { fontSize: 16 }]}>
+                {mode === 'default' ? '🌙' : '☀️'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       {/* Rotate Standard Modal */}
       <Modal visible={showRotateModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack }]}>
+          <View
+            style={[
+              styles.modalBox,
+              isDesktop && styles.modalBoxDesktop,
+              { backgroundColor: colors.cardSurface, borderColor: colors.inkBlack },
+            ]}
+          >
             <Text style={[styles.modalTitle, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
               CHANGE CURRENT SONG
             </Text>
@@ -543,6 +905,121 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
   },
+  /* Desktop Layout Styles */
+  desktopShell: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  desktopSidebar: {
+    width: 280,
+    borderRightWidth: 3,
+    padding: 18,
+    justifyContent: 'space-between',
+  },
+  brandPlate: {
+    borderBottomWidth: 2,
+    paddingBottom: 14,
+    marginBottom: 16,
+  },
+  brandSub: {
+    fontSize: 10,
+    letterSpacing: 1.5,
+  },
+  brandTitle: {
+    fontSize: 28,
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
+  brandMeta: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  desktopNavSection: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  sidebarSectionLabel: {
+    fontSize: 10,
+    letterSpacing: 1.4,
+    marginBottom: 2,
+  },
+  desktopNavBtn: {
+    borderWidth: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  desktopNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  desktopNavCode: {
+    fontSize: 14,
+  },
+  desktopNavTitle: {
+    fontSize: 13,
+    letterSpacing: 1.4,
+  },
+  desktopNavSub: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  sidebarStandardBox: {
+    borderWidth: 2,
+    padding: 12,
+    marginBottom: 14,
+  },
+  sidebarStdHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sidebarStdLabel: {
+    fontSize: 10,
+    letterSpacing: 1,
+  },
+  sidebarStdDays: {
+    fontSize: 10,
+  },
+  sidebarStdTitle: {
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  sidebarRotateBtn: {
+    borderWidth: 1.5,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  sidebarRotateBtnText: {
+    fontSize: 10,
+    letterSpacing: 1,
+  },
+  sidebarTelemetryBox: {
+    borderWidth: 1.5,
+    padding: 10,
+    gap: 4,
+    marginBottom: 'auto',
+  },
+  sidebarTelemetryLine: {
+    fontSize: 11,
+  },
+  sidebarFooter: {
+    marginTop: 14,
+  },
+  desktopThemeBtn: {
+    borderWidth: 1.5,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  desktopThemeText: {
+    fontSize: 11,
+    letterSpacing: 1.2,
+  },
+  desktopMainArea: {
+    flex: 1,
+  },
+  /* Mobile Navigation Bar */
   navBar: {
     flexDirection: 'row',
     borderTopWidth: 2,
@@ -565,15 +1042,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 1.5,
   },
+  /* Modal Styles */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 16,
   },
   modalBox: {
+    width: '100%',
     borderWidth: 3,
-    padding: 16,
+    padding: 18,
+  },
+  modalBoxDesktop: {
+    maxWidth: 520,
   },
   modalTitle: {
     fontSize: 20,
@@ -587,16 +1070,16 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     padding: 8,
     fontSize: 13,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   presetHeader: {
     fontSize: 11,
     letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   presetsScroll: {
     flexDirection: 'row',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   presetPill: {
     borderWidth: 1.5,
@@ -610,12 +1093,12 @@ const styles = StyleSheet.create({
   keysGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
-    marginBottom: 6,
+    gap: 6,
+    marginBottom: 8,
   },
   keyCell: {
     width: '15%',
-    aspectRatio: 1.2,
+    height: 40,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
@@ -631,7 +1114,7 @@ const styles = StyleSheet.create({
   cyclePill: {
     flex: 1,
     borderWidth: 1.5,
-    paddingVertical: 6,
+    paddingVertical: 8,
     alignItems: 'center',
   },
   cycleText: {
