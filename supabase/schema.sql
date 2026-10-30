@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS public.exercises (
   rotation_changed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   accumulated_in_rotation_ms BIGINT NOT NULL DEFAULT 0,
   accumulated_out_rotation_ms BIGINT NOT NULL DEFAULT 0,
+  is_homework BOOLEAN NOT NULL DEFAULT false,
+  homework_started_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -40,6 +42,8 @@ CREATE TABLE IF NOT EXISTS public.exercises (
 ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS rotation_changed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now());
 ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS accumulated_in_rotation_ms BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS accumulated_out_rotation_ms BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS is_homework BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.exercises ADD COLUMN IF NOT EXISTS homework_started_at TIMESTAMPTZ;
 
 -- 3. Practice Logs Table (Every Exercise Played Across Computer & Phone)
 CREATE TABLE IF NOT EXISTS public.practice_logs (

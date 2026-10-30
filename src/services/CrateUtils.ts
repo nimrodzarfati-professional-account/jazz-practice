@@ -9,6 +9,7 @@ import {
   ExerciseCategory,
   MusicalContext,
   RotationTenureStats,
+  HomeworkStats,
 } from '../types/models';
 
 export interface BulkDefaults {
@@ -68,6 +69,38 @@ export function getRotationTenureStats(
 }
 
 /**
+ * Computes live homework tenure, remaining days in the 7-day week, and expiration status
+ */
+export function getHomeworkStats(
+  exercise: Exercise,
+  now: Date = new Date()
+): HomeworkStats {
+  if (!exercise.isHomework || !exercise.homeworkStartedAt) {
+    return {
+      isHomework: false,
+      daysElapsed: 0,
+      daysRemaining: 7,
+      isExpired: false,
+    };
+  }
+
+  const nowMs = now.getTime();
+  const startedMs = new Date(exercise.homeworkStartedAt).getTime();
+  const diffMs = Math.max(0, nowMs - (isNaN(startedMs) ? nowMs : startedMs));
+  const msPerDay = 86400000;
+  const daysElapsed = Math.floor(diffMs / msPerDay) + 1;
+  const isExpired = diffMs >= 7 * msPerDay;
+  const daysRemaining = Math.max(0, 7 - Math.floor(diffMs / msPerDay));
+
+  return {
+    isHomework: true,
+    daysElapsed: Math.min(7, daysElapsed),
+    daysRemaining,
+    isExpired,
+  };
+}
+
+/**
  * Parses multi-line bulk exercise text with pipe-separated shorthand & hashtag overrides
  * 
  * Example lines:
@@ -99,8 +132,9 @@ export function parseBulkExercisesInput(
       let intensity = defaults.intensity;
       let context = defaults.context;
       let category = defaults.category;
-      const inRotation = defaults.inRotation;
+      let inRotation = defaults.inRotation;
       let isKeyBased = defaults.isKeyBased;
+      let isHomework = false;
 
       const descSegments: string[] = [];
 
@@ -155,6 +189,11 @@ export function parseBulkExercisesInput(
             category = 'NEW_CONCEPT';
             continue;
           }
+          if (lower === '#hw' || lower === '#homework') {
+            isHomework = true;
+            inRotation = true;
+            continue;
+          }
 
           // Key-based tags
           if (lower === '#nokeys') {
@@ -191,6 +230,8 @@ export function parseBulkExercisesInput(
         usesActiveStandard: category === 'MAINTENANCE',
         lastPracticedAt: null,
         skippedCount: 0,
+        isHomework,
+        homeworkStartedAt: isHomework ? new Date().toISOString() : null,
       };
     })
     .filter((item): item is NonNullable<typeof item> => item !== null);

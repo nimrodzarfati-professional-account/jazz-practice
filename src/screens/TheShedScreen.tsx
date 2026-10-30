@@ -14,7 +14,9 @@ import {
   updateExerciseProgress,
   getUserSyncState,
   saveUserSyncState,
+  resolveHomeworkDecision,
 } from '../db/repository';
+import { getHomeworkStats } from '../services/CrateUtils';
 import {
   playBlockCompleteChime,
   audioMetronomeService,
@@ -29,6 +31,8 @@ interface TheShedScreenProps {
   onRefreshData: () => void;
   onOpenRotateStandardModal: () => void;
   onUpdateQueueItem?: (updatedExercise: ScoredExercise) => void;
+  currentExerciseIndex?: number;
+  onIndexChange?: (index: number) => void;
 }
 
 export const TheShedScreen: React.FC<TheShedScreenProps> = ({
@@ -37,18 +41,29 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   onRefreshData,
   onOpenRotateStandardModal,
   onUpdateQueueItem,
+  currentExerciseIndex,
+  onIndexChange,
 }) => {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
 
+  // Practice session starts on the first exercise (index 0)
   const [activeIndex, setActiveIndex] = useState(() => {
-    try {
-      const state = getUserSyncState();
-      return Math.max(0, Math.min(queue.length - 1, state.activeQueueIndex || 0));
-    } catch {
-      return 0;
+    if (typeof currentExerciseIndex === 'number') {
+      return Math.max(0, Math.min(queue.length - 1, currentExerciseIndex));
     }
+    return 0;
   });
+
+  // Logging in-flight and spam prevention states
+  const [isLogging, setIsLogging] = useState(false);
+  const [loggedExerciseIds, setLoggedExerciseIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (typeof currentExerciseIndex === 'number') {
+      setActiveIndex(Math.max(0, Math.min(queue.length - 1, currentExerciseIndex)));
+    }
+  }, [currentExerciseIndex, queue.length]);
   const safeActiveIndex = queue.length > 0 ? Math.max(0, Math.min(activeIndex, queue.length - 1)) : 0;
   const activeExercise = queue[safeActiveIndex] || null;
 
@@ -84,6 +99,11 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     }
   });
 
+  // Reset logging state on exercise change
+  useEffect(() => {
+    setIsLogging(false);
+  }, [activeExercise?.id]);
+
   // Whenever the active exercise changes, reset the timer to THAT exercise's duration
   useEffect(() => {
     if (activeExercise) {
@@ -105,23 +125,50 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
     };
   }, []);
 
+  const updateActiveIndex = (nextIdx: number) => {
+    const safeIdx = Math.max(0, Math.min(queue.length - 1, nextIdx));
+    setActiveIndex(safeIdx);
+    if (onIndexChange) {
+      onIndexChange(safeIdx);
+    }
+    saveUserSyncState({ activeQueueIndex: safeIdx });
+  };
+
   const handleBlockFinished = () => {
+    if (isLogging || !activeExercise || loggedExerciseIds.has(activeExercise.id)) {
+      return;
+    }
+    setIsLogging(true);
     setIsRunning(false);
     playBlockCompleteChime(); // Studio chime only — NO voice TTS
-    if (activeExercise) {
-      updateExerciseProgress(
-        activeExercise.id,
-        activeExercise.currentBpm,
-        activeExercise.masteredKeys,
-        true
-      );
-      onRefreshData();
-      // Auto-advance to next queued exercise if available
-      if (activeIndex < queue.length - 1) {
-        const nextIdx = activeIndex + 1;
-        setActiveIndex(nextIdx);
-        saveUserSyncState({ activeQueueIndex: nextIdx });
-      }
+
+    setLoggedExerciseIds((prev) => new Set(prev).add(activeExercise.id));
+
+    updateExerciseProgress(
+      activeExercise.id,
+      activeExercise.currentBpm,
+      activeExercise.masteredKeys,
+      true
+    );
+    onRefreshData();
+
+    // Auto-advance to next queued exercise if available
+    if (activeIndex < queue.length - 1) {
+      const nextIdx = activeIndex + 1;
+      updateActiveIndex(nextIdx);
+    } else {
+      setTimeout(() => {
+        setIsLogging(false);
+      }, 1500);
+    }
+  };
+
+  const handleHomeworkDecision = (exerciseId: string, decision: 'keep' | 'vault') => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    resolveHomeworkDecision(exerciseId, decision);
+    onRefreshData();
+    if (decision === 'vault' && activeIndex < queue.length - 1) {
+      updateActiveIndex(activeIndex);
     }
   };
 
@@ -203,18 +250,14 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
   const handleNextDrill = () => {
     if (activeIndex < queue.length - 1) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const nextIdx = activeIndex + 1;
-      setActiveIndex(nextIdx);
-      saveUserSyncState({ activeQueueIndex: nextIdx });
+      updateActiveIndex(activeIndex + 1);
     }
   };
 
   const handlePrevDrill = () => {
     if (activeIndex > 0) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const prevIdx = activeIndex - 1;
-      setActiveIndex(prevIdx);
-      saveUserSyncState({ activeQueueIndex: prevIdx });
+      updateActiveIndex(activeIndex - 1);
     }
   };
 
@@ -238,6 +281,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
+  const homeworkStats = getHomeworkStats(activeExercise);
 
   const renderTimerAndMetronome = () => (
     <View
@@ -274,9 +318,16 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
             }}
           />
           <StampButton
-            label="✓ MARK AS FINISHED"
+            label={
+              activeExercise && loggedExerciseIds.has(activeExercise.id)
+                ? '✓ LOGGED'
+                : isLogging
+                ? 'SAVING...'
+                : '✓ MARK AS FINISHED'
+            }
             variant="secondary"
             size="sm"
+            disabled={isLogging || Boolean(activeExercise && loggedExerciseIds.has(activeExercise.id))}
             onPress={handleBlockFinished}
           />
         </View>
@@ -435,6 +486,27 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
         <View style={styles.badgeRow}>
           <StampBadge label={activeExercise.context} type={activeExercise.context} />
           <StampBadge label={activeExercise.category.replace('_', ' ')} type={activeExercise.category} />
+          {activeExercise.isHomework && (
+            <View
+              style={[
+                styles.homeworkBadge,
+                {
+                  borderColor: colors.inkBlack,
+                  backgroundColor: homeworkStats.isExpired ? colors.secondary : colors.primary,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontFamily: typography.fontStamp,
+                  fontSize: 9,
+                  color: colors.cardSurface,
+                }}
+              >
+                {homeworkStats.isExpired ? '⚠️ HW DUE' : `📝 HW (${homeworkStats.daysRemaining}D)`}
+              </Text>
+            </View>
+          )}
         </View>
         <Text style={{ fontFamily: typography.fontMonoBold, fontSize: 12, color: colors.inkBlack }}>
           {activeExercise.allocatedMinutes} MIN • PRIORITY {activeExercise.urgencyScore}%
@@ -444,6 +516,64 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
       <Text style={[styles.title, { fontFamily: typography.fontDisplay, color: colors.inkBlack }]}>
         {activeExercise.title}
       </Text>
+
+      {/* Homework Expired Decision Prompt: Vault or Keep */}
+      {activeExercise.isHomework && homeworkStats.isExpired && (
+        <View
+          style={[
+            styles.homeworkDecisionCard,
+            { backgroundColor: colors.recessedSurface, borderColor: colors.secondary },
+          ]}
+        >
+          <Text style={{ fontFamily: typography.fontStamp, fontSize: 12, color: colors.secondary }}>
+            ⚠️ 7-DAY HOMEWORK CYCLE COMPLETE
+          </Text>
+          <Text
+            style={{
+              fontFamily: typography.fontMono,
+              fontSize: 12,
+              color: colors.inkBlack,
+              marginTop: 4,
+              marginBottom: 8,
+              lineHeight: 16,
+            }}
+          >
+            This exercise has finished its 1-week homework period. Would you like to keep practicing it in your active routine or archive it to the vault?
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <StampButton
+                label="📥 MOVE TO VAULT"
+                variant="tertiary"
+                size="sm"
+                onPress={() => handleHomeworkDecision(activeExercise.id, 'vault')}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <StampButton
+                label="✓ KEEP IN ROTATION"
+                variant="primary"
+                size="sm"
+                onPress={() => handleHomeworkDecision(activeExercise.id, 'keep')}
+              />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Active Homework In-Progress Callout */}
+      {activeExercise.isHomework && !homeworkStats.isExpired && (
+        <View
+          style={[
+            styles.homeworkCallout,
+            { backgroundColor: colors.recessedSurface, borderColor: colors.primary },
+          ]}
+        >
+          <Text style={{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.primary }}>
+            📝 WEEKLY HOMEWORK • DAY {homeworkStats.daysElapsed} OF 7 ({homeworkStats.daysRemaining} DAYS REMAINING)
+          </Text>
+        </View>
+      )}
 
       {/* Bound Active Standard Callout for Maintenance Exercises */}
       {activeExercise.assignedStandardTitle && (
@@ -550,8 +680,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                       accessibilityLabel={`Select exercise ${item.title}`}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setActiveIndex(idx);
-                        saveUserSyncState({ activeQueueIndex: idx });
+                        updateActiveIndex(idx);
                       }}
                       style={[
                         styles.desktopQueueRow,
@@ -586,6 +715,27 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                         <View style={{ flexDirection: 'row', gap: 6, marginTop: 2 }}>
                           <StampBadge label={item.context} type={item.context} />
                           <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
+                          {item.isHomework && (
+                            <View
+                              style={[
+                                styles.homeworkBadge,
+                                {
+                                  borderColor: colors.inkBlack,
+                                  backgroundColor: colors.primary,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={{
+                                  fontFamily: typography.fontStamp,
+                                  fontSize: 8,
+                                  color: colors.cardSurface,
+                                }}
+                              >
+                                HW
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
@@ -641,8 +791,7 @@ export const TheShedScreen: React.FC<TheShedScreenProps> = ({
                 accessibilityLabel={`Exercise ${idx + 1} of ${queue.length}: ${item.title}`}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveIndex(idx);
-                  saveUserSyncState({ activeQueueIndex: idx });
+                  updateActiveIndex(idx);
                 }}
                 style={[
                   styles.queuePill,
@@ -753,6 +902,22 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 21, marginTop: 8, marginBottom: 6 },
   standardCallout: { borderWidth: 1.5, padding: 7, marginBottom: 8 },
+  homeworkBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    alignSelf: 'center',
+  },
+  homeworkCallout: {
+    borderWidth: 1.5,
+    padding: 7,
+    marginBottom: 8,
+  },
+  homeworkDecisionCard: {
+    borderWidth: 2,
+    padding: 10,
+    marginBottom: 10,
+  },
   desc: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
   timerWell: {
     borderWidth: 2,

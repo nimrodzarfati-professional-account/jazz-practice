@@ -354,6 +354,8 @@ function createWebStorageAdapter(): SyncDb {
           rotationChangedAt,
           accumulatedInRotationMs,
           accumulatedOutRotationMs,
+          isHomework,
+          homeworkStartedAt,
         ] = params;
         const list = readExercises().filter((e) => e.id !== id);
         list.push({
@@ -378,6 +380,8 @@ function createWebStorageAdapter(): SyncDb {
           rotationChangedAt: rotationChangedAt || new Date().toISOString(),
           accumulatedInRotationMs: Number(accumulatedInRotationMs) || 0,
           accumulatedOutRotationMs: Number(accumulatedOutRotationMs) || 0,
+          isHomework: Number(isHomework) ? 1 : 0,
+          homeworkStartedAt: homeworkStartedAt || null,
         });
         writeExercises(list);
         return;
@@ -431,6 +435,30 @@ function createWebStorageAdapter(): SyncDb {
         const item = list.find((e) => e.id === id);
         if (item) {
           item.masteredKeys = keys;
+          writeExercises(list);
+        }
+        return;
+      }
+
+      if (sql.includes('UPDATE exercises SET isHomework = ?, homeworkStartedAt = ?')) {
+        const [isHw, hwStartedAt, id] = params;
+        const list = readExercises();
+        const item = list.find((e) => e.id === id);
+        if (item) {
+          item.isHomework = Number(isHw) ? 1 : 0;
+          item.homeworkStartedAt = hwStartedAt || null;
+          writeExercises(list);
+        }
+        return;
+      }
+
+      if (sql.includes('UPDATE exercises SET isHomework = 0, homeworkStartedAt = NULL')) {
+        const [id] = params;
+        const list = readExercises();
+        const item = list.find((e) => e.id === id);
+        if (item) {
+          item.isHomework = 0;
+          item.homeworkStartedAt = null;
           writeExercises(list);
         }
         return;
@@ -544,7 +572,9 @@ export function initDatabase(): void {
       skippedCount INTEGER NOT NULL DEFAULT 0,
       rotationChangedAt TEXT,
       accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0,
-      accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0
+      accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0,
+      isHomework INTEGER NOT NULL DEFAULT 0,
+      homeworkStartedAt TEXT
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -565,6 +595,8 @@ export function initDatabase(): void {
     `ALTER TABLE exercises ADD COLUMN rotationChangedAt TEXT`,
     `ALTER TABLE exercises ADD COLUMN accumulatedInRotationMs INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE exercises ADD COLUMN accumulatedOutRotationMs INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE exercises ADD COLUMN isHomework INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE exercises ADD COLUMN homeworkStartedAt TEXT`,
   ];
   for (const sql of migrations) {
     try {
@@ -630,6 +662,8 @@ function mapRowToExercise(row: any): Exercise {
     rotationChangedAt: row.rotationChangedAt || new Date().toISOString(),
     accumulatedInRotationMs: Number(row.accumulatedInRotationMs) || 0,
     accumulatedOutRotationMs: Number(row.accumulatedOutRotationMs) || 0,
+    isHomework: Boolean(row.isHomework),
+    homeworkStartedAt: row.homeworkStartedAt || null,
   };
 }
 
@@ -647,8 +681,9 @@ export function upsertLocalExerciseFromCloud(ex: Exercise): void {
       durationMinutes, intensity, basePriority, currentBpm,
       isKeyBased, masteredKeys, usesActiveStandard,
       lastPracticedAt, skippedCount, rotationChangedAt,
-      accumulatedInRotationMs, accumulatedOutRotationMs
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      accumulatedInRotationMs, accumulatedOutRotationMs,
+      isHomework, homeworkStartedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       ex.id,
       ex.title,
@@ -668,6 +703,8 @@ export function upsertLocalExerciseFromCloud(ex: Exercise): void {
       ex.rotationChangedAt || new Date().toISOString(),
       ex.accumulatedInRotationMs || 0,
       ex.accumulatedOutRotationMs || 0,
+      ex.isHomework ? 1 : 0,
+      ex.homeworkStartedAt || null,
     ]
   );
 }
@@ -962,6 +999,8 @@ export function addExercise(ex: Omit<Exercise, 'id'> & { id?: string }): Exercis
     rotationChangedAt,
     accumulatedInRotationMs,
     accumulatedOutRotationMs,
+    isHomework: Boolean(ex.isHomework),
+    homeworkStartedAt: ex.homeworkStartedAt || (ex.isHomework ? new Date().toISOString() : null),
   };
 
   upsertLocalExerciseFromCloud(result);
@@ -995,7 +1034,8 @@ export function updateExerciseDetails(
     | 'currentBpm'
     | 'isKeyBased'
     | 'usesActiveStandard'
-  >
+  > &
+    Partial<Pick<Exercise, 'isHomework' | 'homeworkStartedAt'>>
 ): void {
   initDatabase();
   const db = getDb();
@@ -1015,6 +1055,60 @@ export function updateExerciseDetails(
       id,
     ]
   );
+  if (updates.isHomework !== undefined) {
+    const nowIso = updates.isHomework ? updates.homeworkStartedAt || new Date().toISOString() : null;
+    db.runSync(
+      'UPDATE exercises SET isHomework = ?, homeworkStartedAt = ? WHERE id = ?',
+      [updates.isHomework ? 1 : 0, nowIso, id]
+    );
+  }
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
+  }
+}
+
+/**
+ * Assigns an exercise as a 7-day high-urgency Weekly Homework assignment (or clears it)
+ */
+export function setExerciseHomework(id: string, isHomework: boolean): void {
+  initDatabase();
+  const db = getDb();
+  const nowIso = isHomework ? new Date().toISOString() : null;
+  db.runSync(
+    'UPDATE exercises SET isHomework = ?, homeworkStartedAt = ? WHERE id = ?',
+    [isHomework ? 1 : 0, nowIso, id]
+  );
+  if (isHomework) {
+    const ex = getExerciseById(id);
+    if (ex && !ex.inRotation) {
+      toggleExerciseRotation(id, true);
+    }
+  }
+  if (onCloudPushExercise) {
+    const updated = getExerciseById(id);
+    if (updated) onCloudPushExercise(updated);
+  }
+}
+
+/**
+ * Resolves the 7-day Homework cycle decision: keep in active rotation or archive to vault
+ */
+export function resolveHomeworkDecision(id: string, decision: 'keep' | 'vault'): void {
+  initDatabase();
+  const db = getDb();
+  db.runSync(
+    'UPDATE exercises SET isHomework = 0, homeworkStartedAt = NULL WHERE id = ?',
+    [id]
+  );
+  if (decision === 'vault') {
+    toggleExerciseRotation(id, false);
+  } else {
+    const ex = getExerciseById(id);
+    if (ex && !ex.inRotation) {
+      toggleExerciseRotation(id, true);
+    }
+  }
   if (onCloudPushExercise) {
     const updated = getExerciseById(id);
     if (updated) onCloudPushExercise(updated);

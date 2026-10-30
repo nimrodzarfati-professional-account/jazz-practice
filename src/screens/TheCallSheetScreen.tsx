@@ -373,6 +373,24 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
               <View style={styles.badgesInline}>
                 <StampBadge label={item.context} type={item.context} />
                 <StampBadge label={item.category.replace('_', ' ')} type={item.category} />
+                {item.isHomework && (
+                  <View
+                    style={[
+                      styles.homeworkBadge,
+                      { borderColor: colors.inkBlack, backgroundColor: colors.secondary },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: typography.fontStamp,
+                        fontSize: 9,
+                        color: colors.cardSurface,
+                      }}
+                    >
+                      📝 HOMEWORK
+                    </Text>
+                  </View>
+                )}
               </View>
               <Text style={[styles.itemMeta, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
                 Priority: {item.urgencyScore}% • {formatUrgencyReason(item)}
@@ -784,6 +802,11 @@ export const TheCallSheetScreen: React.FC<TheCallSheetScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  homeworkBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
   container: { flex: 1, padding: 14 },
   containerDesktop: { padding: 24 },
   desktopColumns: {

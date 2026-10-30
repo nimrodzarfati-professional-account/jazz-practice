@@ -205,6 +205,8 @@ export function exerciseToCloudRow(
     baseRow.rotation_changed_at = ex.rotationChangedAt || new Date().toISOString();
     baseRow.accumulated_in_rotation_ms = Number(ex.accumulatedInRotationMs) || 0;
     baseRow.accumulated_out_rotation_ms = Number(ex.accumulatedOutRotationMs) || 0;
+    baseRow.is_homework = Boolean(ex.isHomework);
+    baseRow.homework_started_at = ex.homeworkStartedAt || null;
   }
 
   return baseRow;
@@ -254,6 +256,8 @@ export function cloudRowToExercise(row: any): Exercise {
     rotationChangedAt: row.rotation_changed_at || new Date().toISOString(),
     accumulatedInRotationMs: Number(row.accumulated_in_rotation_ms) || 0,
     accumulatedOutRotationMs: Number(row.accumulated_out_rotation_ms) || 0,
+    isHomework: Boolean(row.is_homework),
+    homeworkStartedAt: row.homework_started_at || null,
   };
 }
 

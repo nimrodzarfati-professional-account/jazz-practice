@@ -13,6 +13,11 @@ const CATEGORY_DECAY_RATE: Record<ExerciseCategory, number> = {
 };
 
 export function calculateUrgencyScore(exercise: Exercise, now: Date = new Date()): number {
+  // Weekly Homework: maximum urgency (99) to guarantee top placement during its 7-day cycle
+  if (exercise.isHomework) {
+    return 99;
+  }
+
   const daysSince = exercise.lastPracticedAt
     ? Math.max(0, (now.getTime() - new Date(exercise.lastPracticedAt).getTime()) / 86400000)
     : 7; // Default 7 days if never practiced

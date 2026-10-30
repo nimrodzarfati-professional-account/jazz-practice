@@ -72,6 +72,8 @@ function AppContent() {
   const [intensity, setIntensity] = useState(3);
   const [contextFilter, setContextFilter] = useState<'ALL' | MusicalContext>('ALL');
   const [queue, setQueue] = useState<ScoredExercise[]>([]);
+  // Practice session exercise index (starts strictly on first exercise: index 0)
+  const [sessionExerciseIndex, setSessionExerciseIndex] = useState(0);
 
   // Rotate Standard Modal State
   const [showRotateModal, setShowRotateModal] = useState(false);
@@ -89,6 +91,8 @@ function AppContent() {
     const rotationExercises = getRotationExercises();
     const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
     setQueue(newQueue);
+    setSessionExerciseIndex(0);
+    saveUserSyncState({ activeQueueIndex: 0 });
   }, [availableMinutes, intensity, contextFilter]);
 
   const refreshData = useCallback(() => {
@@ -157,6 +161,8 @@ function AppContent() {
     const rotationExercises = getRotationExercises();
     const newQueue = generateSessionQueue(rotationExercises, std, mins, ints, filter);
     setQueue(newQueue);
+    setSessionExerciseIndex(0);
+    saveUserSyncState({ activeQueueIndex: 0 });
   }, [availableMinutes, intensity, contextFilter]);
 
   useEffect(() => {
@@ -194,6 +200,8 @@ function AppContent() {
           : undefined,
     };
     setQueue([singleQueueItem, ...queue.filter((q) => q.id !== exercise.id)]);
+    setSessionExerciseIndex(0);
+    saveUserSyncState({ activeQueueIndex: 0 });
     setActiveTab('shed');
   };
 
@@ -235,6 +243,8 @@ function AppContent() {
           onRefreshData={refreshData}
           onOpenRotateStandardModal={() => setShowRotateModal(true)}
           onUpdateQueueItem={handleUpdateQueueItem}
+          currentExerciseIndex={sessionExerciseIndex}
+          onIndexChange={(idx) => setSessionExerciseIndex(idx)}
         />
       );
     }
@@ -266,7 +276,11 @@ function AppContent() {
         onChangeContextFilter={(f) => {
           handleFaderChange(undefined, undefined, f);
         }}
-        onStartSession={() => setActiveTab('shed')}
+        onStartSession={() => {
+          setSessionExerciseIndex(0);
+          saveUserSyncState({ activeQueueIndex: 0 });
+          setActiveTab('shed');
+        }}
         onOpenRotateStandardModal={() => setShowRotateModal(true)}
       />
     );

@@ -82,6 +82,16 @@ export interface Exercise {
   rotationChangedAt: string;         // ISO timestamp when inRotation last flipped
   accumulatedInRotationMs: number;   // Historical ms spent in rotation prior to rotationChangedAt
   accumulatedOutRotationMs: number;  // Historical ms spent in vault prior to rotationChangedAt
+  // Weekly Homework: high urgency for 7 days, then prompted to vault or keep
+  isHomework?: boolean;
+  homeworkStartedAt?: string | null; // ISO timestamp when homework cycle started
+}
+
+export interface HomeworkStats {
+  isHomework: boolean;
+  daysElapsed: number;
+  daysRemaining: number;
+  isExpired: boolean;
 }
 
 export interface RotationTenureStats {

@@ -23,9 +23,12 @@ import {
   updateExerciseDetails,
   toggleExerciseRotation,
   deleteExercise,
+  setExerciseHomework,
+  resolveHomeworkDecision,
 } from '../db/repository';
 import {
   getRotationTenureStats,
+  getHomeworkStats,
   parseBulkExercisesInput,
 } from '../services/CrateUtils';
 import {
@@ -45,7 +48,7 @@ interface TheCrateScreenProps {
   onRefreshQueue: () => void;
 }
 
-type RotationFilter = 'ALL' | 'IN_ROTATION' | 'VAULT';
+type RotationFilter = 'ALL' | 'IN_ROTATION' | 'VAULT' | 'HOMEWORK';
 type ContextFilter = 'ALL' | MusicalContext;
 
 export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
@@ -72,6 +75,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
   const [bpmInput, setBpmInput] = useState('120');
   const [isKeyBasedInput, setIsKeyBasedInput] = useState(true);
   const [inRotationInput, setInRotationInput] = useState(true);
+  const [isHomeworkInput, setIsHomeworkInput] = useState(false);
 
   // Bulk Ingest Modal State
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -133,6 +137,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     setBpmInput('120');
     setIsKeyBasedInput(true);
     setInRotationInput(true);
+    setIsHomeworkInput(false);
     setShowEditorModal(true);
   };
 
@@ -147,6 +152,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     setBpmInput(String(ex.currentBpm));
     setIsKeyBasedInput(ex.isKeyBased);
     setInRotationInput(ex.inRotation);
+    setIsHomeworkInput(Boolean(ex.isHomework));
     setShowEditorModal(true);
   };
 
@@ -171,8 +177,10 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
         currentBpm: parsedBpm,
         isKeyBased: isKeyBasedInput,
         usesActiveStandard,
+        isHomework: isHomeworkInput,
+        homeworkStartedAt: isHomeworkInput ? (editingExerciseId ? (exercises.find(e => e.id === editingExerciseId)?.homeworkStartedAt || new Date().toISOString()) : new Date().toISOString()) : null,
       });
-      toggleExerciseRotation(editingExerciseId, inRotationInput);
+      toggleExerciseRotation(editingExerciseId, isHomeworkInput ? true : inRotationInput);
     } else {
       addExercise({
         title: cleanTitle,
@@ -192,6 +200,8 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
         rotationChangedAt: new Date().toISOString(),
         accumulatedInRotationMs: 0,
         accumulatedOutRotationMs: 0,
+        isHomework: isHomeworkInput,
+        homeworkStartedAt: isHomeworkInput ? new Date().toISOString() : null,
       });
     }
 
@@ -231,10 +241,23 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
     syncAfterMutation();
   };
 
+  const handleHomeworkDecision = (id: string, decision: 'keep' | 'vault') => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    resolveHomeworkDecision(id, decision);
+    syncAfterMutation();
+  };
+
+  const handleToggleHomework = (ex: Exercise) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setExerciseHomework(ex.id, !ex.isHomework);
+    syncAfterMutation();
+  };
+
   const filteredExercises = useMemo(() => {
     return exercises.filter((ex) => {
       if (rotationFilter === 'IN_ROTATION' && !ex.inRotation) return false;
       if (rotationFilter === 'VAULT' && ex.inRotation) return false;
+      if (rotationFilter === 'HOMEWORK' && !ex.isHomework) return false;
       if (contextFilter !== 'ALL' && ex.context !== contextFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -248,9 +271,11 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
 
   const inRotationCount = exercises.filter((e) => e.inRotation).length;
   const vaultCount = exercises.length - inRotationCount;
+  const homeworkCount = exercises.filter((e) => e.isHomework).length;
 
   const renderExerciseCard = (ex: Exercise) => {
     const tenure = getRotationTenureStats(ex);
+    const hwStats = getHomeworkStats(ex);
     return (
       <View key={ex.id} style={isDesktop ? styles.desktopCardCell : undefined}>
         <CreamBlock>
@@ -261,6 +286,27 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                 label={ex.category.replace('_', ' ')}
                 type={ex.category}
               />
+              {ex.isHomework && (
+                <View
+                  style={[
+                    styles.homeworkBadge,
+                    {
+                      borderColor: colors.inkBlack,
+                      backgroundColor: hwStats.isExpired ? colors.secondary : colors.primary,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      fontFamily: typography.fontStamp,
+                      fontSize: 9,
+                      color: colors.cardSurface,
+                    }}
+                  >
+                    {hwStats.isExpired ? '⚠️ HW DUE' : `📝 HW (${hwStats.daysRemaining}D)`}
+                  </Text>
+                </View>
+              )}
               <View
                 style={[
                   styles.tenureBadge,
@@ -296,6 +342,48 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               {ex.durationMinutes}m • ♩{ex.currentBpm}
             </Text>
           </View>
+
+          {ex.isHomework && hwStats.isExpired && (
+            <View
+              style={[
+                styles.homeworkDecisionBanner,
+                { borderColor: colors.secondary, backgroundColor: colors.recessedSurface },
+              ]}
+            >
+              <Text style={{ fontFamily: typography.fontStamp, fontSize: 11, color: colors.secondary }}>
+                ⚠️ WEEKLY HOMEWORK COMPLETE (7 DAYS)
+              </Text>
+              <Text
+                style={{
+                  fontFamily: typography.fontMono,
+                  fontSize: 11,
+                  color: colors.inkBlack,
+                  marginVertical: 4,
+                  lineHeight: 15,
+                }}
+              >
+                1-week homework period finished. Keep in rotation or move to vault?
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <StampButton
+                    label="📥 TO VAULT"
+                    variant="tertiary"
+                    size="sm"
+                    onPress={() => handleHomeworkDecision(ex.id, 'vault')}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <StampButton
+                    label="✓ KEEP ACTIVE"
+                    variant="primary"
+                    size="sm"
+                    onPress={() => handleHomeworkDecision(ex.id, 'keep')}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
 
           <Text
             style={[
@@ -340,6 +428,12 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               variant="tertiary"
               size="sm"
               onPress={() => handleToggleRotation(ex)}
+            />
+            <StampButton
+              label={ex.isHomework ? '✕ DROP HW' : '📝 SET HW'}
+              variant="tertiary"
+              size="sm"
+              onPress={() => handleToggleHomework(ex)}
             />
             <StampButton
               label="EDIT"
@@ -464,6 +558,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                       { id: 'ALL', label: `ALL (${exercises.length})` },
                       { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
                       { id: 'VAULT', label: `VAULT (${vaultCount})` },
+                      { id: 'HOMEWORK', label: `HOMEWORK (${homeworkCount})` },
                     ] as const
                   ).map((tab) => (
                     <Pressable
@@ -769,6 +864,40 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
                   }}
                 >
                   {inRotationInput ? '✓ ACTIVE IN PLAN' : 'SAVE TO VAULT'}
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Weekly Homework Toggle */}
+            <View style={styles.optionRow}>
+              <Pressable
+                onPress={() => {
+                  const nextVal = !isHomeworkInput;
+                  setIsHomeworkInput(nextVal);
+                  if (nextVal) {
+                    setInRotationInput(true);
+                  }
+                }}
+                style={[
+                  styles.optionPill,
+                  {
+                    borderColor: colors.inkBlack,
+                    backgroundColor: isHomeworkInput
+                      ? colors.secondary
+                      : colors.recessedSurface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: typography.fontStamp,
+                    fontSize: 10,
+                    color: isHomeworkInput ? colors.cardSurface : colors.inkBlack,
+                  }}
+                >
+                  {isHomeworkInput
+                    ? '✓ WEEKLY HOMEWORK (7 DAYS HIGH URGENCY)'
+                    : 'REGULAR EXERCISE'}
                 </Text>
               </Pressable>
             </View>
@@ -1117,6 +1246,7 @@ export const TheCrateScreen: React.FC<TheCrateScreenProps> = ({
               { id: 'ALL', label: `ALL (${exercises.length})` },
               { id: 'IN_ROTATION', label: `ACTIVE (${inRotationCount})` },
               { id: 'VAULT', label: `VAULT (${vaultCount})` },
+              { id: 'HOMEWORK', label: `HW (${homeworkCount})` },
             ] as const
           ).map((tab) => (
             <Pressable
@@ -1302,6 +1432,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  homeworkBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  homeworkDecisionBanner: {
+    borderWidth: 2,
+    padding: 8,
+    marginBottom: 8,
   },
   cardTitle: {
     fontSize: 17,
