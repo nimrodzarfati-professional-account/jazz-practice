@@ -1,25 +1,26 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { PitchKey } from '../types/models';
+import { CIRCLE_OF_FIFTHS, PitchKey } from '../types/models';
 import { useTheme } from '../theme/ThemeContext';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
-
-const CIRCLE_OF_FIFTHS: PitchKey[] = [
-  'C', 'F', 'Bb', 'Eb', 'Ab', 'Db',
-  'Gb', 'B', 'E', 'A', 'D', 'G',
-];
 
 interface KeyStampGridProps {
   isKeyBased: boolean;
   masteredKeys: PitchKey[];
   onToggleKey: (key: PitchKey) => void;
+  mode?: 'multi' | 'single';
+  title?: string;
+  hint?: string;
 }
 
 export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
   isKeyBased,
   masteredKeys,
   onToggleKey,
+  mode = 'multi',
+  title,
+  hint,
 }) => {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
@@ -28,6 +29,8 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
   if (!isKeyBased) {
     return null;
   }
+
+  const isSingle = mode === 'single';
 
   const handlePress = (key: PitchKey) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -38,10 +41,10 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
     <View style={styles.container}>
       <View style={[styles.headerRow, { borderBottomColor: colors.inkBlack }]}>
         <Text style={[styles.headerTitle, { fontFamily: typography.fontStamp, color: colors.inkBlack }]}>
-          12-KEY PROGRESS ({masteredKeys.length}/12)
+          {title ?? (isSingle ? 'KEY' : `12-KEY PROGRESS (${masteredKeys.length}/12)`)}
         </Text>
         <Text style={[styles.headerHint, { fontFamily: typography.fontMono, color: colors.inkMuted }]}>
-          Tap keys you finished
+          {hint ?? (isSingle ? 'Tap a key' : 'Tap keys you finished')}
         </Text>
       </View>
 
@@ -51,9 +54,13 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
           return (
             <Pressable
               key={k}
-              accessibilityLabel={`Key of ${k}, ${isStamped ? 'mastered' : 'not mastered'}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isStamped }}
+              accessibilityLabel={
+                isSingle
+                  ? `Key of ${k}`
+                  : `Key of ${k}, ${isStamped ? 'finished' : 'not finished'}`
+              }
+              accessibilityRole={isSingle ? 'radio' : 'checkbox'}
+              accessibilityState={isSingle ? { selected: isStamped } : { checked: isStamped }}
               onPress={() => handlePress(k)}
               style={[
                 styles.cell,
@@ -77,7 +84,14 @@ export const KeyStampGrid: React.FC<KeyStampGridProps> = ({
                 {k}
               </Text>
               {isStamped && (
-                <Text style={[styles.checkMark, { color: colors.secondary }]}>✓</Text>
+                <Text
+                  style={[
+                    styles.checkMark,
+                    { fontFamily: typography.fontMonoBold, color: colors.secondary },
+                  ]}
+                >
+                  ✓
+                </Text>
               )}
             </Pressable>
           );
@@ -134,6 +148,5 @@ const styles = StyleSheet.create({
     top: 2,
     right: 4,
     fontSize: 9,
-    fontWeight: 'bold',
   },
 });

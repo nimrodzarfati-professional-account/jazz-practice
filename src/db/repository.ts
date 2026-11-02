@@ -5,14 +5,15 @@ import {
   Exercise,
   PitchKey,
   SessionLogEntry,
+  SessionPlan,
   UserSyncState,
 } from '../types/models';
 
 export interface PendingMutation {
   id: string;
-  entityType: 'exercise' | 'standard' | 'practice_log' | 'user_state';
+  entityType: 'exercise' | 'standard' | 'practice_log' | 'user_state' | 'session_plan';
   action: 'UPSERT' | 'DELETE';
-  payload: string; // JSON string of Exercise, ActiveStandard, SessionLogEntry, UserSyncState, or { id: string }
+  payload: string; // JSON string of Exercise, ActiveStandard, SessionLogEntry, UserSyncState, SessionPlan, or { id: string }
   createdAt: string;
 }
 
@@ -35,6 +36,7 @@ let onCloudDeleteExercise: ((id: string) => void) | null = null;
 let onCloudPushStandard: ((std: ActiveStandard) => void) | null = null;
 let onCloudPushPracticeLog: ((log: SessionLogEntry) => void) | null = null;
 let onCloudPushUserState: ((state: UserSyncState) => void) | null = null;
+let onCloudPushSessionPlan: ((p: SessionPlan) => void) | null = null;
 
 export function registerCloudSyncHandlers(handlers: {
   pushExercise: (ex: Exercise) => void;
@@ -42,12 +44,14 @@ export function registerCloudSyncHandlers(handlers: {
   pushStandard: (std: ActiveStandard) => void;
   pushPracticeLog?: (log: SessionLogEntry) => void;
   pushUserState?: (state: UserSyncState) => void;
+  pushSessionPlan?: (plan: SessionPlan) => void;
 }): void {
   onCloudPushExercise = handlers.pushExercise;
   onCloudDeleteExercise = handlers.deleteExercise;
   onCloudPushStandard = handlers.pushStandard;
   onCloudPushPracticeLog = handlers.pushPracticeLog || null;
   onCloudPushUserState = handlers.pushUserState || null;
+  onCloudPushSessionPlan = handlers.pushSessionPlan || null;
 }
 
 const DEFAULT_ACTIVE_STANDARD: ActiveStandard = {
@@ -926,7 +930,8 @@ export function updateExerciseProgress(
   id: string,
   bpm: number,
   keys: PitchKey[],
-  markPracticedNow: boolean
+  markPracticedNow: boolean,
+  practicedMinutes?: number
 ): void {
   initDatabase();
   const db = getDb();
@@ -947,7 +952,7 @@ export function updateExerciseProgress(
       // Log the session's achieved BPM in practice_logs without altering exercises.currentBpm
       logPracticeSession(
         { ...exercise, currentBpm: bpm },
-        exercise.durationMinutes,
+        practicedMinutes ?? exercise.durationMinutes,
         stdTitle
       );
     }
@@ -1279,5 +1284,84 @@ export function saveUserSyncState(
     onCloudPushUserState(updated);
   }
   return updated;
+}
+
+// ==============================================================================
+// Session Plan (one JSON document in app_settings, LWW by updatedAt)
+// ==============================================================================
+
+const SESSION_PLAN_SETTING_KEY = 'shed_v2_session_plan_json';
+
+export function getSessionPlan(): SessionPlan | null {
+  initDatabase();
+  const raw = getAppSetting(SESSION_PLAN_SETTING_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as SessionPlan;
+    if (!parsed || !Array.isArray(parsed.blocks) || !parsed.config) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Silent cache write for cloud pulls / realtime events. Applies only when the incoming plan is
+ * newer than the local one, so a device's own echo is ignored. Never pushes.
+ */
+export function upsertLocalSessionPlanFromCloud(plan: SessionPlan): boolean {
+  initDatabase();
+  const local = getSessionPlan();
+  if (local && !(Date.parse(plan.updatedAt) > Date.parse(local.updatedAt))) {
+    return false;
+  }
+  setAppSetting(SESSION_PLAN_SETTING_KEY, JSON.stringify(plan));
+  return true;
+}
+
+export function saveSessionPlan(plan: SessionPlan): SessionPlan {
+  initDatabase();
+  const local = getSessionPlan();
+  const { updatedAt: _nextUpdatedAt, ...nextBody } = plan;
+  if (local) {
+    const { updatedAt: _localUpdatedAt, ...localBody } = local;
+    if (JSON.stringify(nextBody) === JSON.stringify(localBody)) {
+      return local;
+    }
+  }
+  const updated: SessionPlan = { ...plan, updatedAt: new Date().toISOString() };
+  setAppSetting(SESSION_PLAN_SETTING_KEY, JSON.stringify(updated));
+  if (onCloudPushSessionPlan) {
+    onCloudPushSessionPlan(updated);
+  }
+  return updated;
+}
+
+export function setExerciseBaseBpm(id: string, bpm: number): void {
+  const ex = getExerciseById(id);
+  if (!ex) return;
+  const next: Exercise = { ...ex, currentBpm: Math.max(30, Math.min(320, Math.round(bpm))) };
+  upsertLocalExerciseFromCloud(next);
+  if (onCloudPushExercise) {
+    onCloudPushExercise(next);
+  }
+}
+
+export function incrementExerciseSkipped(id: string): void {
+  incrementSkippedForCanceledSession([id]);
+}
+
+// ==============================================================================
+// Device-local preferences (not synced)
+// ==============================================================================
+
+export type LocalPrefKey = 'pref_auto_start_next' | 'pref_reminder_enabled' | 'pref_reminder_hour';
+
+export function getLocalPref(key: LocalPrefKey, fallback: string): string {
+  return getAppSetting(key) ?? fallback;
+}
+
+export function setLocalPref(key: LocalPrefKey, value: string): void {
+  setAppSetting(key, value);
 }
 

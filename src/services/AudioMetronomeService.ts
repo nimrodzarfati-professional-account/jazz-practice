@@ -2,40 +2,40 @@
  * Audio, Metronome & Studio Chime Service for Shed Engine
  */
 import * as Haptics from 'expo-haptics';
+import { createPlatformAudioContext } from './audioContextFactory';
 
 export type MetronomeFeelMode = 'BACKBEAT_2_4' | 'ALL_FOUR_2_4_ACCENT';
 export type MetronomeVoice = 'PENDULUM' | 'HI_HAT' | 'RIMSHOT' | 'WOODBLOCK';
 
 export const METRONOME_VOICES: { id: MetronomeVoice; label: string }[] = [
   { id: 'PENDULUM', label: 'PENDULUM' },
-  { id: 'HI_HAT', label: '2 & 4 HAT' },
+  { id: 'HI_HAT', label: 'HI-HAT' },
   { id: 'RIMSHOT', label: 'CROSS-STICK' },
   { id: 'WOODBLOCK', label: 'WOODBLOCK' },
 ];
 
+// Look-ahead scheduling: wake every 25 ms and queue any click due in the next 100 ms
+const SCHEDULER_INTERVAL_MS = 25;
+const LOOKAHEAD_SECONDS = 0.1;
+
 let sharedAudioCtx: AudioContext | null = null;
+let audioCtxUnavailable = false;
 
 function getAudioContext(): AudioContext | null {
   try {
-    if (typeof window !== 'undefined') {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as any).webkitAudioContext ||
-        (typeof globalThis !== 'undefined' ? (globalThis as any).AudioContext : undefined);
-      if (AudioContextClass) {
-        if (!sharedAudioCtx) {
-          sharedAudioCtx = new AudioContextClass() as any;
-        }
-        if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
-          sharedAudioCtx.resume();
-        }
-        return sharedAudioCtx;
-      }
+    if (!sharedAudioCtx && !audioCtxUnavailable) {
+      sharedAudioCtx = createPlatformAudioContext();
+      if (!sharedAudioCtx) audioCtxUnavailable = true;
     }
+    if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
+    return sharedAudioCtx;
   } catch {
     // Non-blocking fallback
+    audioCtxUnavailable = true;
+    return null;
   }
-  return null;
 }
 
 /**
@@ -68,9 +68,12 @@ export function playBlockCompleteChime(): void {
 
 class AudioMetronomeService {
   private isTicking: boolean = false;
-  private metronomeTimer: ReturnType<typeof setInterval> | null = null;
+  private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  private beatTimeouts = new Set<ReturnType<typeof setTimeout>>();
   private currentBpm: number = 120;
-  private beatCounter: number = 0;
+  private nextBeat: number = 1;
+  private nextClickTime: number = 0;
+  private onBeat: ((beatNumber: number) => void) | undefined;
   private feelMode: MetronomeFeelMode = 'BACKBEAT_2_4'; // Enforced jazz 2 & 4 by default
   private currentVoice: MetronomeVoice = 'PENDULUM';
   private noiseBuffer: AudioBuffer | null = null;
@@ -91,6 +94,10 @@ class AudioMetronomeService {
     return this.currentVoice;
   }
 
+  private beatSounds(beatNumber: number): boolean {
+    return this.feelMode !== 'BACKBEAT_2_4' || beatNumber === 2 || beatNumber === 4;
+  }
+
   private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
     if (this.noiseBuffer) return this.noiseBuffer;
     const bufferSize = Math.floor(ctx.sampleRate * 0.08); // 80ms buffer for hi-hat chick & snaps
@@ -103,18 +110,14 @@ class AudioMetronomeService {
     return buffer;
   }
 
-  private playClickTone(beatNumber: number): void {
+  private playClickTone(ctx: AudioContext, beatNumber: number, now: number): void {
     try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-
-      const now = ctx.currentTime;
       const isDownbeat = beatNumber === 1;
       const isBackbeat = beatNumber === 2 || beatNumber === 4;
       const isOddBeat = beatNumber % 2 === 1;
 
       // When 2 & 4 Backbeat Mode is enforced, completely mute audio on beats 1 & 3
-      if (this.feelMode === 'BACKBEAT_2_4' && !isBackbeat) {
+      if (!this.beatSounds(beatNumber)) {
         return;
       }
 
@@ -215,45 +218,88 @@ class AudioMetronomeService {
     }
   }
 
+  /** Haptics (only on beats that sound) and the visual beat callback. */
+  private emitBeat(beatNumber: number): void {
+    if (!this.isTicking) return;
+    if (this.beatSounds(beatNumber)) {
+      const isAccent =
+        this.currentVoice === 'HI_HAT'
+          ? beatNumber === 2 || beatNumber === 4
+          : beatNumber === 1;
+      Haptics.impactAsync(
+        isAccent ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light
+      );
+    }
+    this.onBeat?.(beatNumber);
+  }
+
+  private advanceBeat(): void {
+    this.nextBeat = (this.nextBeat % 4) + 1;
+  }
+
+  private runScheduler(ctx: AudioContext): void {
+    // If the timer was throttled (background tab), resync instead of bursting missed clicks
+    if (this.nextClickTime < ctx.currentTime - 0.2) {
+      this.nextClickTime = ctx.currentTime + 0.05;
+    }
+    while (this.nextClickTime < ctx.currentTime + LOOKAHEAD_SECONDS) {
+      const beat = this.nextBeat;
+      const clickTime = this.nextClickTime;
+      this.playClickTone(ctx, beat, clickTime);
+
+      const delayMs = Math.max(0, (clickTime - ctx.currentTime) * 1000);
+      const timeout = setTimeout(() => {
+        this.beatTimeouts.delete(timeout);
+        this.emitBeat(beat);
+      }, delayMs);
+      this.beatTimeouts.add(timeout);
+
+      this.nextClickTime += 60 / this.currentBpm;
+      this.advanceBeat();
+    }
+  }
+
   public startMetronome(bpm: number, onBeat?: (beatNumber: number) => void): void {
     this.stopMetronome();
     this.currentBpm = Math.max(30, Math.min(320, bpm));
     this.isTicking = true;
-    this.beatCounter = 0;
+    this.nextBeat = 1;
+    this.onBeat = onBeat;
 
+    const ctx = getAudioContext();
+    if (ctx) {
+      this.nextClickTime = ctx.currentTime + 0.05;
+      this.runScheduler(ctx);
+      this.schedulerTimer = setInterval(() => this.runScheduler(ctx), SCHEDULER_INTERVAL_MS);
+      return;
+    }
+
+    // No audio context (native build without audio module): haptics and visuals only
     const tick = () => {
-      this.beatCounter = (this.beatCounter % 4) + 1;
-      this.playClickTone(this.beatCounter);
-
-      const isAccent =
-        this.currentVoice === 'HI_HAT'
-          ? this.beatCounter === 2 || this.beatCounter === 4
-          : this.beatCounter === 1;
-
-      if (isAccent) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-
-      if (onBeat) {
-        onBeat(this.beatCounter);
-      }
+      const beat = this.nextBeat;
+      this.advanceBeat();
+      this.emitBeat(beat);
+      this.schedulerTimer = setTimeout(tick, 60000 / this.currentBpm);
     };
-
     tick();
+  }
 
-    const intervalMs = (60 / this.currentBpm) * 1000;
-    this.metronomeTimer = setInterval(tick, intervalMs);
+  /** Changes tempo without restarting the bar or producing an extra click. */
+  public setBpm(bpm: number): void {
+    this.currentBpm = Math.max(30, Math.min(320, bpm));
   }
 
   public stopMetronome(): void {
     this.isTicking = false;
-    if (this.metronomeTimer) {
-      clearInterval(this.metronomeTimer);
-      this.metronomeTimer = null;
+    if (this.schedulerTimer) {
+      clearInterval(this.schedulerTimer);
+      clearTimeout(this.schedulerTimer);
+      this.schedulerTimer = null;
     }
-    this.beatCounter = 0;
+    this.beatTimeouts.forEach((t) => clearTimeout(t));
+    this.beatTimeouts.clear();
+    this.nextBeat = 1;
+    this.onBeat = undefined;
   }
 
   public getIsTicking(): boolean {

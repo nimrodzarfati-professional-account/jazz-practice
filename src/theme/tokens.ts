@@ -1,5 +1,3 @@
-import { TextStyle } from 'react-native';
-
 export const fontFamilies = {
   heading: 'Fraunces_700Bold',
   headingItalic: 'Fraunces_700Bold_Italic',
@@ -18,34 +16,19 @@ export const colors = {
   primary: '#D95D39',           // Autumn Burnt Sienna
   secondary: '#9E2A2B',         // Vintage Oxblood
   tertiary: '#D49B35',          // Saxophone Brass / Amber
-  inkMuted: '#7A6B5D',          // Faded Tan / Muted ink
+  olive: '#6B705C',             // Maintenance olive
+  inkMuted: '#5E5146',          // Faded Tan / Muted ink
 
-  // Legacy & Semantic Aliases
-  bgPrimary: '#16110E',
-  bgSurface: '#241B16',
-  bgCard: '#F4EFE6',
-  bgCardDark: '#2E221A',
-  accentPrimary: '#D95D39',
-  accentSecondary: '#D49B35',
-  accentTertiary: '#6B705C',
-  accentAlert: '#9E2A2B',
+  // Text on fills
+  onAccent: '#181512',          // Dark ink text on sienna / brass / olive fills
+  onDark: '#F4EFE6',            // Cream text on oxblood / ink fills
+  scrim: 'rgba(0,0,0,0.72)',    // Modal backdrop
+
+  // Semantic Aliases
   textPrimary: '#F4EFE6',
-  textSecondary: '#A69686',
   textDark: '#181512',
-  textMuted: '#7A6B5D',
-  border: '#181512',
-  borderLight: '#3A2F26',
   shadowHard: '#0D0A08',
-  soloing: '#D95D39',
-  comping: '#D49B35',
-  maintenance: '#6B705C',
-  transcribing: '#D49B35',
-  newConcept: '#D95D39',
-  stamped: '#9E2A2B',
-  stampedFaded: 'rgba(158, 42, 43, 0.3)',
   disabled: '#4A3D32',
-  amberGlow: 'rgba(212, 155, 53, 0.15)',
-  amberGlowStrong: 'rgba(212, 155, 53, 0.35)',
 } as const;
 
 export const warmColors = {
@@ -57,34 +40,19 @@ export const warmColors = {
   primary: '#C86B3E',           // Burnt orange / Autumn leaf
   secondary: '#8C382A',         // Muted oxblood / Maple
   tertiary: '#B8863A',          // Aged brass / Amber
-  inkMuted: '#8A7A6E',          // Warm grey/brown
+  olive: '#7E8468',             // Maintenance olive
+  inkMuted: '#A89888',          // Warm grey/brown
 
-  // Legacy & Semantic Aliases
-  bgPrimary: '#120D0A',
-  bgSurface: '#1F1711',
-  bgCard: '#2E221A',
-  bgCardDark: '#1A120D',
-  accentPrimary: '#C86B3E',
-  accentSecondary: '#B8863A',
-  accentTertiary: '#615A45',
-  accentAlert: '#8C382A',
+  // Text on fills
+  onAccent: '#181512',
+  onDark: '#F4EFE6',
+  scrim: 'rgba(0,0,0,0.72)',
+
+  // Semantic Aliases
   textPrimary: '#E8DFD3',
-  textSecondary: '#BAA998',
   textDark: '#E8DFD3',          // Readable light text inside inputs on dark cards
-  textMuted: '#8A7A6E',
-  border: '#362A21',
-  borderLight: '#362A21',
   shadowHard: '#080504',
-  soloing: '#C86B3E',
-  comping: '#B8863A',
-  maintenance: '#615A45',
-  transcribing: '#B8863A',
-  newConcept: '#C86B3E',
-  stamped: '#8C382A',
-  stampedFaded: 'rgba(140, 56, 42, 0.3)',
   disabled: '#362A21',
-  amberGlow: 'rgba(184, 134, 58, 0.15)',
-  amberGlowStrong: 'rgba(184, 134, 58, 0.35)',
 } as const;
 
 export const spacing = {
@@ -94,10 +62,12 @@ export const spacing = {
   lg: 24,
   xl: 32,
   xxl: 48,
+  card: 14,
 } as const;
 
 export const borderWidths = {
   thin: 1,
+  hairline: 1.5,
   regular: 2,
   thick: 3,
 } as const;
@@ -134,84 +104,12 @@ export const typography = {
   fontDisplay: fontFamilies.display,
   fontHeading: fontFamilies.heading,
 
-  // Text Styles
-  displayLarge: {
-    fontFamily: fontFamilies.display,
-    fontSize: 36,
-    lineHeight: 40,
-    letterSpacing: -0.5,
-    color: colors.textPrimary,
-  } as TextStyle,
-  headingLarge: {
-    fontFamily: fontFamilies.heading,
-    fontSize: 28,
-    lineHeight: 34,
-    color: colors.textPrimary,
-  } as TextStyle,
-  headingMedium: {
-    fontFamily: fontFamilies.heading,
-    fontSize: 22,
-    lineHeight: 28,
-    color: colors.textPrimary,
-  } as TextStyle,
-  headingSmall: {
-    fontFamily: fontFamilies.heading,
-    fontSize: 18,
-    lineHeight: 24,
-    color: colors.textPrimary,
-  } as TextStyle,
-  stampLarge: {
-    fontFamily: fontFamilies.stamp,
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    color: colors.textPrimary,
-  } as TextStyle,
-  stampSmall: {
-    fontFamily: fontFamilies.stamp,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 2.5,
-    textTransform: 'uppercase',
-    color: colors.textSecondary,
-  } as TextStyle,
-  monoLarge: {
-    fontFamily: fontFamilies.mono,
-    fontSize: 40,
-    lineHeight: 48,
-    color: colors.accentSecondary,
-  } as TextStyle,
-  monoMedium: {
-    fontFamily: fontFamilies.mono,
-    fontSize: 18,
-    lineHeight: 24,
-    color: colors.textSecondary,
-  } as TextStyle,
-  monoSmall: {
-    fontFamily: fontFamilies.mono,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.textSecondary,
-  } as TextStyle,
-  body: {
-    fontFamily: fontFamilies.mono,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textPrimary,
-  } as TextStyle,
-  bodySmall: {
-    fontFamily: fontFamilies.mono,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.textSecondary,
-  } as TextStyle,
-  label: {
-    fontFamily: fontFamilies.stamp,
-    fontSize: 12,
-    lineHeight: 16,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    color: colors.textMuted,
-  } as TextStyle,
+  // Text presets (no colour; combine with a theme colour at the call site)
+  title: { fontFamily: fontFamilies.display, fontSize: 20, letterSpacing: -0.3 },
+  heading: { fontFamily: fontFamilies.heading, fontSize: 15 },
+  stamp: { fontFamily: fontFamilies.stamp, fontSize: 11, letterSpacing: 1.2 },
+  stampSmall: { fontFamily: fontFamilies.stamp, fontSize: 10, letterSpacing: 1 },
+  mono: { fontFamily: fontFamilies.mono, fontSize: 12 },
+  monoBold: { fontFamily: fontFamilies.monoBold, fontSize: 12 },
+  digits: { fontFamily: fontFamilies.monoBold, fontSize: 32, letterSpacing: 1.5 },
 } as const;

@@ -8,10 +8,13 @@ import { fontFamilies } from '../theme/tokens';
 import type { ExerciseCategory, MusicalContext } from '../types/models';
 
 export type StampBadgeType = ExerciseCategory | MusicalContext;
+export type StampBadgeTone = 'primary' | 'secondary' | 'brass' | 'olive' | 'neutral';
 
 export interface StampBadgeProps {
   label: string;
-  type: StampBadgeType;
+  type?: StampBadgeType;
+  tone?: StampBadgeTone;
+  filled?: boolean;
 }
 
 function labelRotation(label: string): number {
@@ -23,33 +26,57 @@ function labelRotation(label: string): number {
   return Math.round(normalized * 100) / 100;
 }
 
-export const StampBadge: React.FC<StampBadgeProps> = ({ label, type }) => {
-  const { colors } = useTheme();
+function toneForType(type: StampBadgeType | undefined): StampBadgeTone {
+  switch (type) {
+    case 'SOLOING':
+    case 'NEW_CONCEPT':
+      return 'primary';
+    case 'COMPING':
+    case 'TRANSCRIBING':
+      return 'brass';
+    case 'MAINTENANCE':
+      return 'olive';
+    default:
+      return 'primary';
+  }
+}
 
-  const badgeColor = useMemo(() => {
-    switch (type) {
-      case 'SOLOING':
-      case 'TRANSCRIBING':
-      case 'NEW_CONCEPT':
-        return colors.primary;
-      case 'COMPING':
-        return colors.tertiary;
-      case 'MAINTENANCE':
+export const StampBadge: React.FC<StampBadgeProps> = ({ label, type, tone, filled = false }) => {
+  const { colors } = useTheme();
+  const resolvedTone = tone ?? toneForType(type);
+
+  const toneColor = useMemo(() => {
+    switch (resolvedTone) {
+      case 'secondary':
         return colors.secondary;
+      case 'brass':
+        return colors.tertiary;
+      case 'olive':
+        return colors.olive;
+      case 'neutral':
+        return colors.inkMuted;
       default:
         return colors.primary;
     }
-  }, [type, colors]);
+  }, [resolvedTone, colors]);
+
+  const filledTextColor =
+    resolvedTone === 'secondary'
+      ? colors.onDark
+      : resolvedTone === 'neutral'
+      ? colors.cardSurface
+      : colors.onAccent;
 
   const rotation = useMemo(() => labelRotation(label), [label]);
 
   const containerStyle: ViewStyle = {
-    borderColor: badgeColor,
+    borderColor: toneColor,
+    backgroundColor: filled ? toneColor : 'transparent',
     transform: [{ rotate: `${rotation}deg` }],
   };
 
   const textStyle: TextStyle = {
-    color: badgeColor,
+    color: filled ? filledTextColor : toneColor,
   };
 
   return (
@@ -72,7 +99,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.5,
     lineHeight: 14,
-    textTransform: 'uppercase',
   },
 });
 

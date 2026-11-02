@@ -12,6 +12,9 @@ const CATEGORY_DECAY_RATE: Record<ExerciseCategory, number> = {
   MAINTENANCE: 1.2,
 };
 
+// Blocks are never trimmed below this many minutes
+const MIN_BLOCK_MINUTES = 5;
+
 export function calculateUrgencyScore(exercise: Exercise, now: Date = new Date()): number {
   // Weekly Homework: maximum urgency (99) to guarantee top placement during its 7-day cycle
   if (exercise.isHomework) {
@@ -38,94 +41,103 @@ export function calculateUrgencyScore(exercise: Exercise, now: Date = new Date()
   return Math.max(1, Math.min(99, Math.round(rawScore)));
 }
 
+function isSameLocalDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function practicedToday(exercise: Exercise, now: Date): boolean {
+  if (!exercise.lastPracticedAt) return false;
+  const practiced = new Date(exercise.lastPracticedAt);
+  return !Number.isNaN(practiced.getTime()) && isSameLocalDate(practiced, now);
+}
+
 export function generateSessionQueue(
   allExercises: Exercise[],
   activeStandard: ActiveStandard,
   availableMinutes: number,
   maxIntensity: number,
-  contextFilter: 'ALL' | MusicalContext = 'ALL'
+  contextFilter: 'ALL' | MusicalContext = 'ALL',
+  now: Date = new Date()
 ): ScoredExercise[] {
   const safeIntensity = Number.isFinite(maxIntensity) ? maxIntensity : 3;
   const safeMinutes = Number.isFinite(availableMinutes) ? availableMinutes : 30;
+  const intensityOf = (ex: Exercise) => (Number.isFinite(ex.intensity) ? ex.intensity : 3);
 
-  // 1. Strictly filter to exercises in current Active Rotation & within Intensity cap
-  const eligible = allExercises
-    .filter((ex) => ex.inRotation)
-    .filter((ex) => (Number.isFinite(ex.intensity) ? ex.intensity : 3) <= safeIntensity)
-    .filter((ex) => contextFilter === 'ALL' || ex.context === contextFilter)
+  // 1. Only active exercises are scheduled
+  const active = allExercises.filter((ex) => ex.inRotation);
+  if (active.length === 0) return [];
+
+  // 2. Energy cap, ignored when it would exclude every active exercise
+  let pool = active.filter((ex) => intensityOf(ex) <= safeIntensity);
+  if (pool.length === 0) pool = active;
+
+  // 3. Focus filter, skipped when it would exclude everything left
+  if (contextFilter !== 'ALL') {
+    const byContext = pool.filter((ex) => ex.context === contextFilter);
+    if (byContext.length > 0) pool = byContext;
+  }
+
+  // 4. Prefer exercises not already practiced today
+  const fresh = pool.filter((ex) => !practicedToday(ex, now));
+  if (fresh.length > 0) pool = fresh;
+
+  // 5. Score and size each block
+  const scored: ScoredExercise[] = pool
     .map((ex) => ({
       ...ex,
-      urgencyScore: calculateUrgencyScore(ex),
-      allocatedMinutes: ex.durationMinutes, // Timer comes directly from the exercise!
+      urgencyScore: calculateUrgencyScore(ex, now),
+      // A block is never shorter than the minimum, even for an oddly short exercise
+      allocatedMinutes: Math.max(
+        MIN_BLOCK_MINUTES,
+        Number.isFinite(ex.durationMinutes) && ex.durationMinutes > 0
+          ? Math.round(ex.durationMinutes)
+          : 15
+      ),
       assignedStandardTitle:
         ex.usesActiveStandard || ex.category === 'MAINTENANCE'
           ? (activeStandard?.title && activeStandard?.defaultKey
               ? `${activeStandard.title} (${activeStandard.defaultKey})`
-              : 'No standard chosen')
+              : 'No song chosen')
           : undefined,
     }))
     .sort((a, b) => b.urgencyScore - a.urgencyScore);
+
+  // 6. This-week exercises are always packed first
+  const homework = scored.filter((ex) => ex.isHomework);
+  const others = scored.filter((ex) => !ex.isHomework);
 
   const packedQueue: ScoredExercise[] = [];
   let remainingMinutes = safeMinutes;
   let lastContext: MusicalContext | null = null;
 
-  const pool = [...eligible];
-
-  // 2. Pack exercises while alternating SOLOING and COMPING when possible
-  while (pool.length > 0 && remainingMinutes >= 10) {
-    let pickIndex = 0;
-
-    if (contextFilter === 'ALL' && lastContext !== null) {
-      const oppositeIndex = pool.findIndex((item) => item.context !== lastContext);
-      if (oppositeIndex !== -1) {
-        pickIndex = oppositeIndex;
+  // 7. Pack while at least one minimum-length block still fits. Every exercise is at least
+  //    MIN_BLOCK_MINUTES long, so a block trimmed to the remaining window is never shorter.
+  const pack = (list: ScoredExercise[], alternate: boolean): void => {
+    const pending = [...list];
+    while (pending.length > 0 && remainingMinutes >= MIN_BLOCK_MINUTES) {
+      let pickIndex = 0;
+      if (alternate && contextFilter === 'ALL' && lastContext !== null) {
+        const oppositeIndex = pending.findIndex((item) => item.context !== lastContext);
+        if (oppositeIndex !== -1) {
+          pickIndex = oppositeIndex;
+        }
       }
+
+      const picked = pending.splice(pickIndex, 1)[0];
+      const blockMinutes = Math.min(picked.allocatedMinutes, remainingMinutes);
+
+      packedQueue.push({ ...picked, allocatedMinutes: blockMinutes });
+      remainingMinutes -= blockMinutes;
+      lastContext = picked.context;
     }
+  };
 
-    const picked = pool.splice(pickIndex, 1)[0];
-
-    // Each exercise sets its own timer duration; trim only if it slightly exceeds remaining window
-    const timerDuration = Math.min(picked.durationMinutes, remainingMinutes);
-
-    packedQueue.push({
-      ...picked,
-      allocatedMinutes: timerDuration,
-    });
-
-    remainingMinutes -= timerDuration;
-    lastContext = picked.context;
-  }
+  pack(homework, false);
+  pack(others, true);
 
   return packedQueue;
-}
-
-export function reconcileQueueInPlace(
-  currentQueue: ScoredExercise[],
-  allExercises: Exercise[],
-  activeStandard: ActiveStandard,
-  preserveSessionBpm: boolean = true
-): ScoredExercise[] {
-  if (currentQueue.length === 0) return currentQueue;
-  const map = new Map<string, Exercise>(allExercises.map((e) => [e.id, e]));
-
-  return currentQueue
-    .filter((item) => map.has(item.id))
-    .map((item) => {
-      const fresh = map.get(item.id)!;
-      return {
-        ...item,
-        ...fresh,
-        // Keep temporary in-session BPM unless refreshed from The Crate
-        currentBpm: preserveSessionBpm ? item.currentBpm : fresh.currentBpm,
-        urgencyScore: item.urgencyScore,
-        allocatedMinutes: item.allocatedMinutes,
-        assignedStandardTitle:
-          fresh.usesActiveStandard || fresh.category === 'MAINTENANCE'
-            ? activeStandard?.title && activeStandard?.defaultKey
-              ? `${activeStandard.title} (${activeStandard.defaultKey})`
-              : 'No standard chosen'
-            : undefined,
-      };
-    });
 }

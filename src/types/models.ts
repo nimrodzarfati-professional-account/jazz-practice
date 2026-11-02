@@ -94,14 +94,6 @@ export interface HomeworkStats {
   isExpired: boolean;
 }
 
-export interface RotationTenureStats {
-  currentStreakDays: number;
-  currentStreakLabel: string;        // e.g. "6D", "<1D", "3W"
-  totalInRotationDays: number;
-  totalOutRotationDays: number;
-  activeRatioPercent: number;        // 0 - 100
-}
-
 /**
  * Scored exercise for the practice queue (output of SchedulerEngine)
  */
@@ -117,7 +109,7 @@ export interface ScoredExercise extends Exercise {
 export interface SessionConfig {
   availableMinutes: number; // 15-120
   intensity: number; // 1-5
-  contextFilter?: 'ALL' | MusicalContext;
+  contextFilter: 'ALL' | MusicalContext;
 }
 
 /**
@@ -146,4 +138,45 @@ export interface UserSyncState {
   metronomeVoice: 'PENDULUM' | 'HI_HAT' | 'RIMSHOT' | 'WOODBLOCK';
   themeMode: 'default' | 'warm';
   updatedAt: string;
+}
+
+// ==============================================================================
+// Session plan (persisted, synced as one JSON document)
+// ==============================================================================
+
+export type BlockStatus = 'pending' | 'done' | 'skipped';
+
+export interface SessionBlock {
+  exerciseId: string;
+  allocatedMinutes: number;        // 5..60 (extendCurrent may raise to 120)
+  status: BlockStatus;
+  elapsedSeconds: number;          // practiced seconds folded in on pause/done/skip
+  bpm: number | null;              // session tempo; null = use exercise.currentBpm
+  practicedMinutes: number | null; // set when status becomes 'done'
+}
+
+export type SessionStatus = 'building' | 'running' | 'complete';
+
+export interface SessionPlan {
+  id: 'plan_1';
+  status: SessionStatus;
+  blocks: SessionBlock[];
+  currentIndex: number;
+  runningSince: string | null;     // ISO; non-null while the current block's clock runs
+  isCustomized: boolean;           // true once the user edits the suggestion
+  config: SessionConfig;           // inputs used for the last suggestion
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;               // LWW key for cloud sync
+}
+
+export interface ResolvedBlock extends SessionBlock {
+  index: number;
+  exercise: Exercise;
+  effectiveBpm: number;            // bpm ?? exercise.currentBpm
+  elapsedSecondsNow: number;       // includes the running interval for the current block
+  remainingSeconds: number;        // max(0, allocatedMinutes*60 - elapsedSecondsNow)
+  isCurrent: boolean;
+  assignedSongTitle?: string;      // "Stella by Starlight (Bb)" when bound to the current song
 }

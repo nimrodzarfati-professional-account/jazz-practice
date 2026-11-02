@@ -1,14 +1,13 @@
 /**
- * CrateUtils — Utilities for The Crate Screen
+ * CrateUtils — Utilities for the Library screen
  * 
- * - Rotation tenure calculation (current streak, total active vs vault, ratio)
+ * - Weekly ("this week") status
  * - Shorthand line-by-line bulk exercise ingestion parser
  */
 import {
   Exercise,
   ExerciseCategory,
   MusicalContext,
-  RotationTenureStats,
   HomeworkStats,
 } from '../types/models';
 
@@ -20,52 +19,6 @@ export interface BulkDefaults {
   intensity: number;
   currentBpm: number;
   isKeyBased: boolean;
-}
-
-/**
- * Computes live streak and lifetime rotation stats for an exercise in O(1)
- */
-export function getRotationTenureStats(
-  exercise: Exercise,
-  now: Date = new Date()
-): RotationTenureStats {
-  const nowMs = now.getTime();
-  const changedAtMs = exercise.rotationChangedAt
-    ? new Date(exercise.rotationChangedAt).getTime()
-    : nowMs;
-  const currentStreakMs = Math.max(0, nowMs - (isNaN(changedAtMs) ? nowMs : changedAtMs));
-
-  const totalInMs =
-    (exercise.accumulatedInRotationMs || 0) + (exercise.inRotation ? currentStreakMs : 0);
-  const totalOutMs =
-    (exercise.accumulatedOutRotationMs || 0) + (!exercise.inRotation ? currentStreakMs : 0);
-
-  const msPerDay = 86400000;
-  const currentStreakDays = Math.floor(currentStreakMs / msPerDay);
-  const totalInRotationDays = Math.round((totalInMs / msPerDay) * 10) / 10;
-  const totalOutRotationDays = Math.round((totalOutMs / msPerDay) * 10) / 10;
-
-  const totalMs = totalInMs + totalOutMs;
-  const activeRatioPercent =
-    totalMs > 0 ? Math.round((totalInMs / totalMs) * 100) : exercise.inRotation ? 100 : 0;
-
-  // Format compact stamp label: "<1D", "5D", "2W", "3M"
-  let currentStreakLabel = '<1D';
-  if (currentStreakDays >= 60) {
-    currentStreakLabel = `${Math.floor(currentStreakDays / 30)}M`;
-  } else if (currentStreakDays >= 14) {
-    currentStreakLabel = `${Math.floor(currentStreakDays / 7)}W`;
-  } else if (currentStreakDays >= 1) {
-    currentStreakLabel = `${currentStreakDays}D`;
-  }
-
-  return {
-    currentStreakDays,
-    currentStreakLabel,
-    totalInRotationDays,
-    totalOutRotationDays,
-    activeRatioPercent,
-  };
 }
 
 /**
@@ -213,7 +166,7 @@ export function parseBulkExercisesInput(
         }
       }
 
-      const description = descSegments.join(' // ').trim() || 'Custom shed routine';
+      const description = descSegments.join(' // ').trim() || 'Custom exercise';
 
       return {
         title,

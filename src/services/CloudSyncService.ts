@@ -8,6 +8,7 @@ import {
   Exercise,
   PitchKey,
   SessionLogEntry,
+  SessionPlan,
   UserSyncState,
 } from '../types/models';
 import {
@@ -27,6 +28,8 @@ import {
   upsertLocalPracticeLogsFromCloud,
   getUserSyncState,
   upsertLocalUserStateFromCloud,
+  getSessionPlan,
+  upsertLocalSessionPlanFromCloud,
 } from '../db/repository';
 
 export type SyncConnectionStatus = 'connected' | 'syncing' | 'offline';
@@ -349,6 +352,20 @@ export function cloudRowToUserState(row: any): UserSyncState {
   };
 }
 
+// One JSONB column keeps the Supabase schema stable as the plan type evolves.
+export function sessionPlanToCloudRow(plan: SessionPlan): Record<string, any> {
+  return {
+    id: 'plan_1',
+    body: plan,
+    updated_at: plan.updatedAt,
+  };
+}
+
+export function cloudRowToSessionPlan(row: any): SessionPlan | null {
+  if (!row || !Array.isArray(row.body?.blocks)) return null;
+  return row.body as SessionPlan;
+}
+
 // ==============================================================================
 // Direct R/W Operations with Offline Outbox Queue Fallback
 // ==============================================================================
@@ -548,6 +565,49 @@ export async function pushUserStateToCloud(state: UserSyncState): Promise<void> 
   }
 }
 
+export async function pushSessionPlanToCloud(plan: SessionPlan): Promise<void> {
+  const mutationId = 'mut_session_plan_1';
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'session_plan',
+      action: 'UPSERT',
+      payload: JSON.stringify(plan),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client.from('session_plan').upsert(sessionPlanToCloudRow(plan));
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        // Optional table not yet migrated in Supabase; do not mark DB offline
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushSessionPlan, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'session_plan',
+      action: 'UPSERT',
+      payload: JSON.stringify(plan),
+      createdAt: new Date().toISOString(),
+    });
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
+  }
+}
+
 /**
  * Replays any offline mutations stored in `pending_mutations` to Supabase
  */
@@ -585,6 +645,12 @@ export async function flushPendingMutations(): Promise<void> {
         const { error } = await client
           .from('user_sync_state')
           .upsert(userStateToCloudRow(state));
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'session_plan' && mut.action === 'UPSERT') {
+        const plan: SessionPlan = JSON.parse(mut.payload);
+        const { error } = await client
+          .from('session_plan')
+          .upsert(sessionPlanToCloudRow(plan));
         if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       }
     } catch {
@@ -731,6 +797,31 @@ export async function pullAllFromCloud(): Promise<{
       console.warn('[CloudSync] User sync state notice:', stateErr);
     }
 
+    // Step 7: Sync Session Plan (Optional table — ignore schema errors)
+    try {
+      const { data: planData, error: planError } = await client
+        .from('session_plan')
+        .select('*')
+        .eq('id', 'plan_1')
+        .limit(1);
+
+      if (!planError) {
+        const remotePlan = planData && planData.length > 0 ? cloudRowToSessionPlan(planData[0]) : null;
+        if (remotePlan) {
+          upsertLocalSessionPlanFromCloud(remotePlan);
+        } else {
+          const localPlan = getSessionPlan();
+          if (localPlan) {
+            await client.from('session_plan').upsert(sessionPlanToCloudRow(localPlan));
+          }
+        }
+      } else if (!isSchemaOrPolicyError(planError)) {
+        console.warn('[CloudSync] Session plan sync notice:', planError);
+      }
+    } catch (planErr) {
+      console.warn('[CloudSync] Session plan sync notice:', planErr);
+    }
+
     setSyncStatus('connected');
     return { success: true, count: remoteExercises.length };
   } catch (err: any) {
@@ -847,6 +938,23 @@ export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => voi
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'session_plan' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const plan = cloudRowToSessionPlan(payload.new);
+              // Only refresh when the row was newer than ours; our own echo is ignored.
+              if (plan && upsertLocalSessionPlanFromCloud(plan)) {
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime session_plan event error:', err);
+          }
+        }
+      )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           setSyncStatus('connected');
@@ -904,5 +1012,8 @@ registerCloudSyncHandlers({
   },
   pushUserState: (state) => {
     pushUserStateToCloud(state);
+  },
+  pushSessionPlan: (plan) => {
+    pushSessionPlanToCloud(plan);
   },
 });

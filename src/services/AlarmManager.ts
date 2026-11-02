@@ -11,8 +11,10 @@ import {
   incrementSkippedForCanceledSession,
 } from '../db/repository';
 import { generateSessionQueue } from './SchedulerEngine';
+import { SessionConfig } from '../types/models';
 
 export const ALARM_CHANNEL_ID = 'shed_hard_alarm_channel';
+const ALARM_NOTIFICATION_ID = 'next_scheduled_shed';
 
 export async function setupAlarmChannel(): Promise<void> {
   if (Platform.OS === 'web') {
@@ -24,7 +26,7 @@ export async function setupAlarmChannel(): Promise<void> {
     await notifee.requestPermission();
     await notifee.createChannel({
       id: ALARM_CHANNEL_ID,
-      name: 'Shed Engine Practice Alarms',
+      name: 'Practice reminders',
       importance: AndroidImportance.HIGH,
       sound: 'rhodes_swell', // Bundled warm Rhodes wav in android/app/src/main/res/raw
       vibration: true,
@@ -34,9 +36,9 @@ export async function setupAlarmChannel(): Promise<void> {
       {
         id: 'SHED_ALARM_ACTIONS',
         actions: [
-          { id: 'START_SHED', title: '▶ Start Shed', foreground: true },
-          { id: 'LOW_ENERGY_20M', title: '🔋 Low Energy (20m)', foreground: true },
-          { id: 'CANCEL_AND_HEAL', title: '✖ Cancel & Self-Heal', destructive: true },
+          { id: 'START_SHED', title: '▶ Start', foreground: true },
+          { id: 'LOW_ENERGY_20M', title: 'Short session (20 min)', foreground: true },
+          { id: 'CANCEL_AND_HEAL', title: '✕ Skip today', destructive: true },
         ],
       },
     ]);
@@ -45,24 +47,31 @@ export async function setupAlarmChannel(): Promise<void> {
   }
 }
 
-export async function scheduleNextShedAlarm(
-  targetDate: Date,
-  durationMinutes: number,
-  maxIntensity: number
-): Promise<void> {
-  const rotationExercises = getRotationExercises();
+/** Next occurrence of `hour`:00 — today if still ahead, otherwise tomorrow. */
+function nextOccurrenceOf(hour: number, now: Date = new Date()): Date {
+  const target = new Date(now);
+  target.setHours(hour, 0, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
+
+export async function scheduleNextShedAlarm(hour: number, config: SessionConfig): Promise<void> {
+  const targetDate = nextOccurrenceOf(hour);
   const activeStandard = getActiveStandard();
   const previewQueue = generateSessionQueue(
-    rotationExercises,
+    getRotationExercises(),
     activeStandard,
-    durationMinutes,
-    maxIntensity
+    config.availableMinutes,
+    config.intensity,
+    config.contextFilter
   );
 
-  const topTitles = previewQueue.map((e) => `${e.title} (${e.allocatedMinutes}m)`).join(' • ');
+  const topTitles = previewQueue.map((e) => `${e.title} (${e.allocatedMinutes} min)`).join(' • ');
 
   if (Platform.OS === 'web') {
-    console.log(`[AlarmManager] Web practice alarm scheduled for ${targetDate.toLocaleTimeString()}: ${topTitles}`);
+    console.log(`[AlarmManager] Web practice alarm scheduled for ${targetDate.toLocaleString()}: ${topTitles}`);
     return;
   }
 
@@ -75,9 +84,9 @@ export async function scheduleNextShedAlarm(
 
     await notifee.createTriggerNotification(
       {
-        id: 'next_scheduled_shed',
-        title: `🎷 Shed Time (${durationMinutes}m) — Std: ${activeStandard?.title || 'No standard chosen'}`,
-        body: topTitles || 'Open Shed Engine to start your rotation.',
+        id: ALARM_NOTIFICATION_ID,
+        title: `Practice time (${config.availableMinutes} min) — Song: ${activeStandard?.title || 'none chosen'}`,
+        body: topTitles || 'Open the app to plan today’s practice.',
         data: {
           queuedIds: JSON.stringify(previewQueue.map((e) => e.id)),
         },
@@ -86,9 +95,9 @@ export async function scheduleNextShedAlarm(
           importance: AndroidImportance.HIGH,
           fullScreenAction: { id: 'default' },
           actions: [
-            { title: '▶ Start Shed', pressAction: { id: 'START_SHED', launchActivity: 'default' } },
-            { title: '🔋 20m Maint.', pressAction: { id: 'LOW_ENERGY_20M', launchActivity: 'default' } },
-            { title: '✖ Cancel & Heal', pressAction: { id: 'CANCEL_AND_HEAL' } },
+            { title: '▶ Start', pressAction: { id: 'START_SHED', launchActivity: 'default' } },
+            { title: 'Short (20 min)', pressAction: { id: 'LOW_ENERGY_20M', launchActivity: 'default' } },
+            { title: '✕ Skip today', pressAction: { id: 'CANCEL_AND_HEAL' } },
           ],
         },
         ios: {
@@ -104,7 +113,16 @@ export async function scheduleNextShedAlarm(
   }
 }
 
-// Background lock-screen handler: if user taps "Cancel & Heal", boost urgency in SQLite automatically
+export async function cancelNextShedAlarm(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    await notifee.cancelNotification(ALARM_NOTIFICATION_ID);
+  } catch (err) {
+    console.warn('[AlarmManager] Failed to cancel reminder:', err);
+  }
+}
+
+// Background lock-screen handler: if the user taps "Skip today", boost urgency in SQLite automatically
 if (Platform.OS !== 'web') {
   try {
     notifee.onBackgroundEvent(async ({ type, detail }) => {
@@ -114,7 +132,7 @@ if (Platform.OS !== 'web') {
           const ids: string[] = JSON.parse(rawIds);
           incrementSkippedForCanceledSession(ids);
         }
-        await notifee.cancelNotification(detail.notification?.id || 'next_scheduled_shed');
+        await notifee.cancelNotification(detail.notification?.id || ALARM_NOTIFICATION_ID);
       }
     });
   } catch {

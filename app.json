@@ -27,20 +27,11 @@
       "baseUrl": "/jazz-practice"
     },
     "plugins": [
-      "expo-router",
       "expo-sqlite",
-      "expo-audio",
       "expo-font",
       "expo-splash-screen",
       "expo-status-bar",
-      "expo-asset",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icon.png",
-          "color": "#D49B35"
-        }
-      ]
+      "expo-asset"
     ]
   }
 }

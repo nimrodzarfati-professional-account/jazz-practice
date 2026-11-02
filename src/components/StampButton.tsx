@@ -9,13 +9,16 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeContext';
 
+export type StampButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'alert';
+
 export interface StampButtonProps {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'tertiary' | 'alert';
+  variant?: StampButtonVariant;
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   style?: ViewStyle;
+  accessibilityLabel?: string;
 }
 
 export const StampButton: React.FC<StampButtonProps> = ({
@@ -25,12 +28,14 @@ export const StampButton: React.FC<StampButtonProps> = ({
   size = 'md',
   disabled = false,
   style,
+  accessibilityLabel,
 }) => {
   const { colors, typography } = useTheme();
   const [isPressed, setIsPressed] = useState(false);
 
+  // Disabled renders as a muted outline stamp so status labels ("✓ SAVED") stay legible
   const getBackgroundColor = () => {
-    if (disabled) return colors.disabled;
+    if (disabled) return colors.recessedSurface;
     switch (variant) {
       case 'primary':
         return colors.primary;
@@ -39,7 +44,7 @@ export const StampButton: React.FC<StampButtonProps> = ({
       case 'tertiary':
         return colors.recessedSurface;
       case 'alert':
-        return colors.secondary;
+        return colors.cardSurface;
       default:
         return colors.primary;
     }
@@ -47,8 +52,16 @@ export const StampButton: React.FC<StampButtonProps> = ({
 
   const getTextColor = () => {
     if (disabled) return colors.inkMuted;
-    if (variant === 'tertiary') return colors.inkBlack;
-    return colors.textPrimary;
+    switch (variant) {
+      case 'primary':
+        return colors.onAccent;
+      case 'secondary':
+        return colors.onDark;
+      case 'alert':
+        return colors.secondary;
+      default:
+        return colors.inkBlack;
+    }
   };
 
   const handlePressIn = () => {
@@ -67,7 +80,7 @@ export const StampButton: React.FC<StampButtonProps> = ({
     onPress();
   };
 
-  const shadowOffset = isPressed ? 1 : 3;
+  const shadowOffset = disabled ? 0 : isPressed ? 1 : 3;
 
   return (
     <View style={[styles.wrapper, { marginRight: shadowOffset, marginBottom: shadowOffset }]}>
@@ -86,7 +99,7 @@ export const StampButton: React.FC<StampButtonProps> = ({
       />
 
       <Pressable
-        accessibilityLabel={label}
+        accessibilityLabel={accessibilityLabel ?? label}
         accessibilityRole="button"
         accessibilityState={{ disabled }}
         onPressIn={handlePressIn}
@@ -98,8 +111,11 @@ export const StampButton: React.FC<StampButtonProps> = ({
           styles[size],
           {
             backgroundColor: getBackgroundColor(),
-            borderColor: colors.inkBlack,
-            opacity: disabled ? 0.6 : 1,
+            borderColor: disabled
+              ? colors.inkMuted
+              : variant === 'alert'
+              ? colors.secondary
+              : colors.inkBlack,
           },
           style,
         ]}
@@ -132,14 +148,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sm: {
+    minHeight: 36,
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
   md: {
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
   lg: {
+    minHeight: 52,
     paddingVertical: 14,
     paddingHorizontal: 20,
   },
