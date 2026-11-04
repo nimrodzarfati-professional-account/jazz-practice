@@ -5,8 +5,9 @@
  * - Mobile: bottom navigation dock + single-column screens
  * - Desktop: left sidebar + centered workstation canvas
  */
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +18,12 @@ import { TodayScreen } from './src/screens/TodayScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
 import { ProgressScreen } from './src/screens/ProgressScreen';
 import { NavItem } from './src/components/NavItem';
+import { StampModal } from './src/components/StampModal';
+import { StampButton } from './src/components/StampButton';
+import { StampBadge } from './src/components/StampBadge';
+import { categoryLabel } from './src/utils/format';
+import { toggleExerciseRotation } from './src/db/repository';
+import { isOverdueRotationExercise, getLastPracticedStampLabel } from './src/services/CrateUtils';
 
 type TabRoute = 'today' | 'library' | 'progress';
 
@@ -29,12 +36,49 @@ const TABS: { id: TabRoute; code: string; title: string; subtitle: string }[] = 
 function AppContent() {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
-  const { startNow } = useSession();
+  const { exercises, startNow, reloadFromDb } = useSession();
   const [activeTab, setActiveTab] = useState<TabRoute>('today');
+  const [showOverdueModal, setShowOverdueModal] = useState(false);
+  const hasTriggeredOverdueRef = useRef(false);
+
+  const overdueExercises = useMemo(() => {
+    return exercises.filter((ex) => isOverdueRotationExercise(ex, 7));
+  }, [exercises]);
+
+  useEffect(() => {
+    if (!hasTriggeredOverdueRef.current && overdueExercises.length > 0) {
+      hasTriggeredOverdueRef.current = true;
+      setShowOverdueModal(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+  }, [overdueExercises]);
 
   const handleStartNow = (exerciseId: string) => {
     startNow(exerciseId);
     setActiveTab('today');
+  };
+
+  const handlePracticeOverdue = (exerciseId: string) => {
+    setShowOverdueModal(false);
+    handleStartNow(exerciseId);
+  };
+
+  const handleSaveForLater = (exerciseId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    toggleExerciseRotation(exerciseId, false);
+    reloadFromDb();
+  };
+
+  const handleSaveAllForLater = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    overdueExercises.forEach((ex) => toggleExerciseRotation(ex.id, false));
+    setShowOverdueModal(false);
+    reloadFromDb();
+  };
+
+  const handleDismissOverdue = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowOverdueModal(false);
   };
 
   const screen =
@@ -87,6 +131,76 @@ function AppContent() {
           </View>
         </>
       )}
+
+      <StampModal
+        visible={showOverdueModal}
+        title="OVERDUE DRILLS IN ROTATION"
+        subtitle={
+          overdueExercises.length === 1
+            ? "1 drill in your active rotation hasn't been practiced in over 7 days:"
+            : `${overdueExercises.length} drills in your active rotation haven't been practiced in over 7 days:`
+        }
+        onClose={handleDismissOverdue}
+        actions={
+          <>
+            {overdueExercises.length > 1 && (
+              <StampButton
+                label="SAVE ALL FOR LATER"
+                variant="tertiary"
+                size="sm"
+                onPress={handleSaveAllForLater}
+              />
+            )}
+            <StampButton
+              label="KEEP IN ROTATION"
+              variant="primary"
+              size="sm"
+              onPress={handleDismissOverdue}
+            />
+          </>
+        }
+      >
+        {overdueExercises.map((item) => (
+          <View
+            key={item.id}
+            style={[
+              styles.overdueCard,
+              { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+            ]}
+          >
+            <View style={styles.overdueInfo}>
+              <View style={styles.overdueBadges}>
+                <StampBadge label={item.context} type={item.context} />
+                <StampBadge label={categoryLabel(item.category)} type={item.category} />
+                <StampBadge
+                  label={`⚠️ ${getLastPracticedStampLabel(item.lastPracticedAt)}`}
+                  tone="secondary"
+                />
+              </View>
+              <Text style={[typography.title, styles.overdueTitle, { color: colors.inkBlack }]}>
+                {item.title}
+              </Text>
+              <Text style={[typography.monoBold, styles.overdueMeta, { color: colors.inkMuted }]}>
+                {item.durationMinutes} MIN • ♩{item.currentBpm}
+              </Text>
+            </View>
+            <View style={styles.overdueActions}>
+              <StampButton
+                label="▶ PRACTICE"
+                variant="primary"
+                size="sm"
+                onPress={() => handlePracticeOverdue(item.id)}
+              />
+              <StampButton
+                label="SAVE FOR LATER"
+                variant="tertiary"
+                size="sm"
+                onPress={() => handleSaveForLater(item.id)}
+              />
+            </View>
+          </View>
+        ))}
+      </StampModal>
     </SafeAreaView>
   );
 }
@@ -138,5 +252,29 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     gap: 6,
+  },
+  overdueCard: {
+    borderWidth: 1.5,
+    padding: 12,
+    gap: 8,
+  },
+  overdueInfo: {
+    gap: 4,
+  },
+  overdueBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  overdueTitle: {
+    fontSize: 18,
+  },
+  overdueMeta: {
+    fontSize: 11,
+  },
+  overdueActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
   },
 });

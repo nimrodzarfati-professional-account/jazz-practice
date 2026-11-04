@@ -13,7 +13,11 @@ import {
   toggleExerciseRotation,
   updateExerciseDetails,
 } from '../db/repository';
-import { parseBulkExercisesInput } from '../services/CrateUtils';
+import {
+  parseBulkExercisesInput,
+  getLastPracticedStampLabel,
+  isOverdueRotationExercise,
+} from '../services/CrateUtils';
 import { categoryLabel } from '../utils/format';
 import { CreamBlock } from '../components/CreamBlock';
 import { SectionHeader } from '../components/SectionHeader';
@@ -264,6 +268,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow }) => {
 
   const renderCard = (ex: Exercise) => {
     const alreadyInPlan = inPlan.has(ex.id);
+    const isOverdue = isOverdueRotationExercise(ex, 7);
     const meta = [
       `${ex.durationMinutes} MIN`,
       `♩${ex.currentBpm}`,
@@ -280,6 +285,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow }) => {
             <StampBadge label={categoryLabel(ex.category)} type={ex.category} />
             {ex.isHomework && <StampBadge label="THIS WEEK" tone="primary" filled />}
             {!ex.inRotation && <StampBadge label="SAVED" tone="neutral" />}
+            <StampBadge
+              label={
+                isOverdue
+                  ? `⚠️ ${getLastPracticedStampLabel(ex.lastPracticedAt)}`
+                  : getLastPracticedStampLabel(ex.lastPracticedAt)
+              }
+              tone={isOverdue ? 'secondary' : 'neutral'}
+            />
           </View>
           <Text style={[typography.title, styles.cardTitle, { color: colors.inkBlack }]}>{ex.title}</Text>
           {ex.description ? (

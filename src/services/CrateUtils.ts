@@ -54,6 +54,112 @@ export function getHomeworkStats(
 }
 
 /**
+ * Formats time elapsed since last practiced into a human-readable stamp (e.g. "3d ago", "7m ago", "Never practiced")
+ */
+export function formatTimeSincePracticed(
+  lastPracticedAt: string | null,
+  now: Date = new Date()
+): string {
+  if (!lastPracticedAt) return 'Never practiced';
+  const nowMs = now.getTime();
+  const practicedMs = new Date(lastPracticedAt).getTime();
+  if (isNaN(practicedMs)) return 'Never practiced';
+
+  const diffMs = Math.max(0, nowMs - practicedMs);
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+
+  if (days >= 60) {
+    return `${Math.floor(days / 30)}mo ago`;
+  }
+  if (days >= 14) {
+    return `${Math.floor(days / 7)}w ago`;
+  }
+  if (days >= 1) {
+    return `${days}d ago`;
+  }
+  if (hours >= 1) {
+    return `${hours}h ago`;
+  }
+  if (mins >= 1) {
+    return `${mins}m ago`;
+  }
+  return 'Just now';
+}
+
+/**
+ * Formats a concise stamp label for the exercise card badge (e.g. "LAST: 3D AGO", "LAST: TODAY", "LAST: NEVER")
+ */
+export function getLastPracticedStampLabel(
+  lastPracticedAt: string | null,
+  now: Date = new Date()
+): string {
+  if (!lastPracticedAt) return 'LAST: NEVER';
+  const nowMs = now.getTime();
+  const practicedMs = new Date(lastPracticedAt).getTime();
+  if (isNaN(practicedMs)) return 'LAST: NEVER';
+
+  const diffMs = Math.max(0, nowMs - practicedMs);
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+
+  if (days >= 60) {
+    return `LAST: ${Math.floor(days / 30)}MO AGO`;
+  }
+  if (days >= 14) {
+    return `LAST: ${Math.floor(days / 7)}W AGO`;
+  }
+  if (days >= 1) {
+    return `LAST: ${days}D AGO`;
+  }
+  if (hours >= 1) {
+    return `LAST: ${hours}H AGO`;
+  }
+  if (mins >= 1) {
+    return `LAST: ${mins}M AGO`;
+  }
+  return 'LAST: TODAY';
+}
+
+/**
+ * Returns number of days elapsed since the exercise was last practiced.
+ * If never practiced, returns days spent in current rotation streak (or 999 if unknown).
+ */
+export function getDaysSincePracticed(
+  exercise: Exercise,
+  now: Date = new Date()
+): number {
+  const nowMs = now.getTime();
+  if (exercise.lastPracticedAt) {
+    const practicedMs = new Date(exercise.lastPracticedAt).getTime();
+    if (!isNaN(practicedMs)) {
+      return Math.max(0, (nowMs - practicedMs) / 86400000);
+    }
+  }
+  if (exercise.rotationChangedAt) {
+    const changedMs = new Date(exercise.rotationChangedAt).getTime();
+    if (!isNaN(changedMs)) {
+      return Math.max(0, (nowMs - changedMs) / 86400000);
+    }
+  }
+  return 999;
+}
+
+/**
+ * Checks if an exercise is in active rotation and has not been practiced for more than the specified threshold (default: 7 days)
+ */
+export function isOverdueRotationExercise(
+  exercise: Exercise,
+  thresholdDays: number = 7,
+  now: Date = new Date()
+): boolean {
+  if (!exercise.inRotation) return false;
+  return getDaysSincePracticed(exercise, now) > thresholdDays;
+}
+
+/**
  * Parses multi-line bulk exercise text with pipe-separated shorthand & hashtag overrides
  * 
  * Example lines:
