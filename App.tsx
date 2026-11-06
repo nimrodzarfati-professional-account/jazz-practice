@@ -18,6 +18,7 @@ import { TodayScreen } from './src/screens/TodayScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
 import { KnowledgeScreen } from './src/screens/KnowledgeScreen';
 import { ProgressScreen } from './src/screens/ProgressScreen';
+import { ScreenErrorBoundary } from './src/components/ScreenErrorBoundary';
 import { NavItem } from './src/components/NavItem';
 import { StampModal } from './src/components/StampModal';
 import { StampButton } from './src/components/StampButton';
@@ -125,11 +126,19 @@ function AppContent() {
             </View>
             <View style={styles.sidebarNav}>{navItems}</View>
           </View>
-          <View style={styles.main}>{screen}</View>
+          <View style={styles.main}>
+            <ScreenErrorBoundary resetKey={activeTab}>
+              {screen}
+            </ScreenErrorBoundary>
+          </View>
         </View>
       ) : (
         <>
-          <View style={styles.main}>{screen}</View>
+          <View style={styles.main}>
+            <ScreenErrorBoundary resetKey={activeTab}>
+              {screen}
+            </ScreenErrorBoundary>
+          </View>
           <View
             accessibilityRole="tablist"
             style={[styles.dock, { backgroundColor: colors.cardSurface, borderTopColor: colors.inkBlack }]}

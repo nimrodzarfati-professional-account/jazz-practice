@@ -39,7 +39,7 @@ export function registerKnowledgeCloudHandlers(handlers: {
  * Normalizes title for comparison
  */
 function normalizeTitle(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /**
@@ -62,7 +62,19 @@ export function getKnowledgeNotes(): KnowledgeNote[] {
       setKnowledgeNotes(SEED_KNOWLEDGE_NOTES);
       return SEED_KNOWLEDGE_NOTES;
     }
-    return list.sort((a, b) => {
+    const sanitized = list.map((n) => ({
+      ...n,
+      title: n.title || 'Untitled Note',
+      slug: n.slug || generateSlug(n.title || 'untitled-note'),
+      content: n.content || '',
+      category: (n.category || 'THEORY') as KnowledgeCategory,
+      tags: Array.isArray(n.tags) ? n.tags : [],
+      pinned: Boolean(n.pinned),
+      relatedExerciseIds: Array.isArray(n.relatedExerciseIds) ? n.relatedExerciseIds : [],
+      createdAt: n.createdAt || new Date().toISOString(),
+      updatedAt: n.updatedAt || new Date().toISOString(),
+    }));
+    return sanitized.sort((a, b) => {
       // Pinned notes first, then by latest updatedAt
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
@@ -276,13 +288,14 @@ export function getBacklinks(
   targetTitle: string,
   allNotes: KnowledgeNote[]
 ): BacklinkItem[] {
-  const targetNorm = normalizeTitle(targetTitle);
+  const targetNorm = normalizeTitle(targetTitle || '');
   const backlinks: BacklinkItem[] = [];
 
-  for (const note of allNotes) {
+  for (const note of allNotes || []) {
+    if (!note || !note.title) continue;
     if (normalizeTitle(note.title) === targetNorm) continue; // Don't link to self
 
-    const links = extractWikiLinks(note.content);
+    const links = extractWikiLinks(note.content || '');
     const mentionsTarget = links.some(
       (l) =>
         normalizeTitle(l.title) === targetNorm ||
@@ -292,7 +305,7 @@ export function getBacklinks(
 
     if (mentionsTarget) {
       // Find context snippet (the sentence or line with [[link]])
-      const lines = note.content.split('\n');
+      const lines = (note.content || '').split('\n');
       const matchingLine = lines.find((l) => l.includes('[[')) || note.title;
       const cleanSnippet = matchingLine.replace(/[#*`_>]/g, '').trim();
 
@@ -315,20 +328,22 @@ export function getOutgoingLinks(
   noteContent: string,
   allNotes: KnowledgeNote[]
 ): WikiLinkReference[] {
-  const rawLinks = extractWikiLinks(noteContent);
+  const rawLinks = extractWikiLinks(noteContent || '');
   const result: WikiLinkReference[] = [];
   const seen = new Set<string>();
 
   for (const link of rawLinks) {
-    const key = normalizeTitle(link.title);
-    if (seen.has(key)) continue;
+    const key = normalizeTitle(link.title || '');
+    if (!key || seen.has(key)) continue;
     seen.add(key);
 
-    const resolved = allNotes.find(
+    const resolved = (allNotes || []).find(
       (n) =>
-        normalizeTitle(n.title) === key ||
-        normalizeTitle(n.title).includes(key) ||
-        key.includes(normalizeTitle(n.title))
+        n &&
+        n.title &&
+        (normalizeTitle(n.title) === key ||
+          normalizeTitle(n.title).includes(key) ||
+          key.includes(normalizeTitle(n.title)))
     );
 
     result.push({
@@ -351,12 +366,17 @@ export function buildKnowledgeGraph(allNotes: KnowledgeNote[]): KnowledgeGraphDa
   const edges: GraphEdge[] = [];
   const connectionCounts = new Map<string, number>();
 
+  const notesList = allNotes || [];
+
   // Initialize connection map
-  allNotes.forEach((n) => connectionCounts.set(n.id, 0));
+  notesList.forEach((n) => {
+    if (n && n.id) connectionCounts.set(n.id, 0);
+  });
 
   // Calculate links and edges
-  for (const source of allNotes) {
-    const outgoing = getOutgoingLinks(source.content, allNotes);
+  for (const source of notesList) {
+    if (!source || !source.id) continue;
+    const outgoing = getOutgoingLinks(source.content || '', notesList);
     for (const link of outgoing) {
       if (link.resolvedNoteId && link.resolvedNoteId !== source.id) {
         edges.push({
@@ -376,12 +396,13 @@ export function buildKnowledgeGraph(allNotes: KnowledgeNote[]): KnowledgeGraphDa
   }
 
   // Layout algorithm: Distribute nodes radially around a center with jitter
-  const total = allNotes.length;
+  const total = notesList.length;
   const centerX = 360;
   const centerY = 320;
   const baseRadius = Math.min(260, 60 + total * 18);
 
-  allNotes.forEach((note, index) => {
+  notesList.forEach((note, index) => {
+    if (!note || !note.id) return;
     // Arrange in a spiral / golden ratio distribution
     const angle = index * (Math.PI * (3 - Math.sqrt(5))) + (index % 2) * 0.4;
     const connections = connectionCounts.get(note.id) || 0;
@@ -394,9 +415,9 @@ export function buildKnowledgeGraph(allNotes: KnowledgeNote[]): KnowledgeGraphDa
 
     nodes.push({
       id: note.id,
-      title: note.title,
-      category: note.category,
-      tags: note.tags,
+      title: note.title || '',
+      category: note.category || 'THEORY',
+      tags: Array.isArray(note.tags) ? note.tags : [],
       connections,
       x,
       y,

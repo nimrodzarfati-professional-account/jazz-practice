@@ -54,7 +54,13 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
   const { isDesktop } = useResponsiveLayout();
   const { exercises } = useSession();
 
-  const [notes, setNotes] = useState<KnowledgeNote[]>([]);
+  const [notes, setNotes] = useState<KnowledgeNote[]>(() => {
+    try {
+      return getKnowledgeNotes();
+    } catch {
+      return [];
+    }
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<KnowledgeCategory | 'ALL'>('ALL');
@@ -71,8 +77,12 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
 
   // Reload notes from database
   const reloadNotes = () => {
-    const list = getKnowledgeNotes();
-    setNotes(list);
+    try {
+      const list = getKnowledgeNotes();
+      setNotes(list);
+    } catch (e) {
+      console.warn('[KnowledgeScreen] Error reloading notes:', e);
+    }
   };
 
   useEffect(() => {
@@ -86,9 +96,10 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
   // Compute all unique tags across notes with counts
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const n of notes) {
-      for (const t of n.tags) {
-        counts.set(t, (counts.get(t) || 0) + 1);
+    for (const n of notes || []) {
+      const tags = Array.isArray(n?.tags) ? n.tags : [];
+      for (const t of tags) {
+        if (t) counts.set(t, (counts.get(t) || 0) + 1);
       }
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
@@ -97,29 +108,35 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
   // Compute total wikilinks across vault
   const totalWikiLinks = useMemo(() => {
     let count = 0;
-    for (const n of notes) {
-      count += getOutgoingLinks(n.content, notes).length;
+    for (const n of notes || []) {
+      count += getOutgoingLinks(n?.content || '', notes || []).length;
     }
     return count;
   }, [notes]);
 
   // Filtered notes for list view
   const filteredNotes = useMemo(() => {
-    return notes.filter((n) => {
+    return (notes || []).filter((n) => {
+      if (!n) return false;
+      const cat = n.category || 'THEORY';
+      const tags = Array.isArray(n.tags) ? n.tags : [];
+      const title = n.title || '';
+      const content = n.content || '';
+
       // Category filter
-      if (selectedCategory !== 'ALL' && n.category !== selectedCategory) {
+      if (selectedCategory !== 'ALL' && cat !== selectedCategory) {
         return false;
       }
       // Tag filter
-      if (selectedTag && !n.tags.includes(selectedTag)) {
+      if (selectedTag && !tags.includes(selectedTag)) {
         return false;
       }
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchesTitle = n.title.toLowerCase().includes(q);
-        const matchesContent = n.content.toLowerCase().includes(q);
-        const matchesTags = n.tags.some((t) => t.toLowerCase().includes(q));
+        const matchesTitle = title.toLowerCase().includes(q);
+        const matchesContent = content.toLowerCase().includes(q);
+        const matchesTags = tags.some((t) => (t || '').toLowerCase().includes(q));
         if (!matchesTitle && !matchesContent && !matchesTags) {
           return false;
         }
@@ -214,10 +231,10 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
 
   // Clean snippet for preview card
   const getNoteSnippet = (content: string) => {
-    const { body } = extractFrontmatter(content);
-    const lines = body
+    const { body } = extractFrontmatter(content || '');
+    const lines = (body || '')
       .split('\n')
-      .map((l) => l.trim())
+      .map((l) => (l || '').trim())
       .filter((l) => l && !l.startsWith('#') && !l.startsWith('---') && !l.startsWith('```'));
     return lines.slice(0, 2).join(' ').replace(/[>*_`]/g, '');
   };
@@ -445,9 +462,10 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
                   </CreamBlock>
                 ) : (
                   filteredNotes.map((note) => {
-                    const snippet = getNoteSnippet(note.content);
-                    const outgoing = getOutgoingLinks(note.content, notes);
-                    const incoming = getBacklinks(note.title, notes);
+                    const snippet = getNoteSnippet(note.content || '');
+                    const outgoing = getOutgoingLinks(note.content || '', notes || []);
+                    const incoming = getBacklinks(note.title || '', notes || []);
+                    const noteTags = Array.isArray(note.tags) ? note.tags : [];
 
                     return (
                       <Pressable
@@ -457,13 +475,13 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
                         <CreamBlock>
                           <View style={styles.noteCardTop}>
                             <View style={styles.badgesWrap}>
-                              <StampBadge label={note.category} type={note.category as any} />
+                              <StampBadge label={note.category || 'THEORY'} type={(note.category || 'THEORY') as any} />
                               {note.pinned && (
                                 <StampBadge label="★ PINNED" tone="brass" />
                               )}
                             </View>
                             <Text style={[typography.stampSmall, { color: colors.inkMuted }]}>
-                              {new Date(note.updatedAt).toLocaleDateString()}
+                              {note.updatedAt ? new Date(note.updatedAt).toLocaleDateString() : ''}
                             </Text>
                           </View>
 
@@ -474,7 +492,7 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
                               { color: colors.inkBlack },
                             ]}
                           >
-                            {note.title}
+                            {note.title || 'Untitled Note'}
                           </Text>
 
                           {snippet ? (
@@ -492,7 +510,7 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
 
                           <View style={styles.noteCardFooter}>
                             <View style={styles.tagsPreviewRow}>
-                              {note.tags.slice(0, 3).map((tag) => (
+                              {noteTags.slice(0, 3).map((tag) => (
                                 <Text
                                   key={tag}
                                   style={[

@@ -13,7 +13,6 @@ import React from 'react';
 import {
   View,
   Text,
-  Pressable,
   StyleSheet,
   ViewStyle,
   Linking,
@@ -57,7 +56,7 @@ export const VintageMarkdown: React.FC<VintageMarkdownProps> = ({
       switch (token.type) {
         case 'wikilink': {
           return (
-            <Pressable
+            <Text
               key={key}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -65,30 +64,23 @@ export const VintageMarkdown: React.FC<VintageMarkdownProps> = ({
                   onPressWikiLink(token.target);
                 }
               }}
-              style={({ pressed }) => [
-                styles.wikiLinkBadge,
+              style={[
+                typography.monoBold,
+                styles.wikiLinkText,
                 {
-                  borderColor: colors.primary,
-                  backgroundColor: pressed ? colors.primary : colors.recessedSurface,
+                  color: colors.primary,
+                  textDecorationLine: 'underline',
                 },
               ]}
             >
-              <Text
-                style={[
-                  typography.monoBold,
-                  styles.wikiLinkText,
-                  { color: colors.primary },
-                ]}
-              >
-                ☍ [[{token.text}]]
-              </Text>
-            </Pressable>
+              {`[[${token.text}]]`}
+            </Text>
           );
         }
 
         case 'tag': {
           return (
-            <Pressable
+            <Text
               key={key}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -96,24 +88,17 @@ export const VintageMarkdown: React.FC<VintageMarkdownProps> = ({
                   onPressTag(token.target);
                 }
               }}
-              style={({ pressed }) => [
-                styles.tagBadge,
+              style={[
+                typography.stampSmall,
+                styles.tagText,
                 {
-                  borderColor: colors.inkMuted,
-                  backgroundColor: pressed ? colors.tertiary : 'transparent',
+                  color: colors.tertiary,
+                  textDecorationLine: 'underline',
                 },
               ]}
             >
-              <Text
-                style={[
-                  typography.stampSmall,
-                  styles.tagText,
-                  { color: colors.tertiary },
-                ]}
-              >
-                {token.text.toUpperCase()}
-              </Text>
-            </Pressable>
+              {token.text.toUpperCase()}
+            </Text>
           );
         }
 
@@ -190,24 +175,21 @@ export const VintageMarkdown: React.FC<VintageMarkdownProps> = ({
 
         case 'link': {
           return (
-            <Pressable
+            <Text
               key={key}
               onPress={() => {
                 if (token.target) Linking.openURL(token.target);
               }}
+              style={[
+                baseTextStyle,
+                {
+                  color: colors.primary,
+                  textDecorationLine: 'underline',
+                },
+              ]}
             >
-              <Text
-                style={[
-                  baseTextStyle,
-                  {
-                    color: colors.primary,
-                    textDecorationLine: 'underline',
-                  },
-                ]}
-              >
-                {token.text}
-              </Text>
-            </Pressable>
+              {token.text}
+            </Text>
           );
         }
 
@@ -544,24 +526,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 1,
   },
-  wikiLinkBadge: {
-    borderWidth: 1.5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    alignSelf: 'baseline',
-    marginHorizontal: 2,
-    marginVertical: 1,
-  },
   wikiLinkText: {
     fontSize: 12,
     letterSpacing: 0.5,
-  },
-  tagBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    alignSelf: 'baseline',
-    marginHorizontal: 2,
   },
   tagText: {
     fontSize: 10,

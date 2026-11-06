@@ -30,6 +30,8 @@ export const ImportMarkdownModal: React.FC<ImportMarkdownModalProps> = ({
   const { colors, typography } = useTheme();
   const [rawText, setRawText] = useState('');
 
+  if (!visible) return null;
+
   const handleImport = () => {
     if (!rawText.trim()) {
       Alert.alert('Empty Markdown', 'Please paste the contents of your .md file.');

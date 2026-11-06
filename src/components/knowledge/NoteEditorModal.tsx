@@ -79,6 +79,8 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
     setActiveTab('edit');
   }, [noteToEdit, visible]);
 
+  if (!visible) return null;
+
   const handleAddTag = () => {
     const clean = tagsInput.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase().trim();
     if (clean && !tags.includes(clean)) {
@@ -124,20 +126,21 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
 
   return (
-    <StampModal
-      visible={visible}
-      title={noteToEdit ? 'EDIT KNOWLEDGE NOTE' : 'NEW OBSIDIAN NOTE'}
-      subtitle={noteToEdit ? `Editing "${noteToEdit.title}"` : 'Create a markdown document with [[WikiLinks]]'}
-      onClose={onClose}
-      actions={
-        <>
-          <StampButton label="DISCARD" variant="tertiary" size="sm" onPress={onClose} />
-          <StampButton label="SAVE NOTE ✓" variant="primary" size="sm" onPress={handleSave} />
-        </>
-      }
-    >
-      <View style={styles.container}>
-        {/* Title Input */}
+    <>
+      <StampModal
+        visible={visible}
+        title={noteToEdit ? 'EDIT KNOWLEDGE NOTE' : 'NEW OBSIDIAN NOTE'}
+        subtitle={noteToEdit ? `Editing "${noteToEdit.title}"` : 'Create a markdown document with [[WikiLinks]]'}
+        onClose={onClose}
+        actions={
+          <>
+            <StampButton label="DISCARD" variant="tertiary" size="sm" onPress={onClose} />
+            <StampButton label="SAVE NOTE ✓" variant="primary" size="sm" onPress={handleSave} />
+          </>
+        }
+      >
+        <View style={styles.container}>
+          {/* Title Input */}
         <View style={styles.fieldBlock}>
           <Text style={[typography.stamp, { color: colors.inkBlack }]}>NOTE TITLE:</Text>
           <TextInput
@@ -404,17 +407,18 @@ export const NoteEditorModal: React.FC<NoteEditorModalProps> = ({
             MARKDOWN READY
           </Text>
         </View>
-
-        {/* WikiLink Picker Modal */}
-        <WikiLinkPickerModal
-          visible={showLinkPicker}
-          notes={allNotes}
-          currentNoteId={noteToEdit?.id}
-          onSelect={handleInsertWikiLink}
-          onClose={() => setShowLinkPicker(false)}
-        />
       </View>
     </StampModal>
+
+    {/* WikiLink Picker Modal rendered as sibling to StampModal */}
+    <WikiLinkPickerModal
+      visible={showLinkPicker}
+      notes={allNotes}
+      currentNoteId={noteToEdit?.id}
+      onSelect={handleInsertWikiLink}
+      onClose={() => setShowLinkPicker(false)}
+    />
+  </>
   );
 };
 

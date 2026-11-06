@@ -55,18 +55,23 @@ export const NoteReader: React.FC<NoteReaderProps> = ({
 }) => {
   const { colors, typography } = useTheme();
 
-  const backlinks = getBacklinks(note.title, allNotes);
-  const outgoingLinks = getOutgoingLinks(note.content, allNotes);
+  const noteTitle = note?.title || 'Untitled Note';
+  const noteContent = note?.content || '';
+  const noteTags = Array.isArray(note?.tags) ? note.tags : [];
+
+  const backlinks = getBacklinks(noteTitle, allNotes || []);
+  const outgoingLinks = getOutgoingLinks(noteContent, allNotes || []);
 
   // Find related exercises
-  const relatedExercises = exercises.filter((ex) => {
-    if (note.relatedExerciseIds?.includes(ex.id)) return true;
-    const normNoteTitle = note.title.toLowerCase();
-    const normExTitle = ex.title.toLowerCase();
+  const relatedExercises = (exercises || []).filter((ex) => {
+    if (!ex) return false;
+    if (note?.relatedExerciseIds?.includes(ex.id)) return true;
+    const normNoteTitle = noteTitle.toLowerCase();
+    const normExTitle = (ex.title || '').toLowerCase();
     return (
       normExTitle.includes(normNoteTitle) ||
       normNoteTitle.includes(normExTitle) ||
-      note.tags.some((t) => normExTitle.includes(t))
+      noteTags.some((t) => (t && normExTitle.includes(t.toLowerCase())))
     );
   });
 
@@ -174,16 +179,16 @@ export const NoteReader: React.FC<NoteReaderProps> = ({
       {/* Main Note Card */}
       <CreamBlock>
         <View style={styles.metaTopRow}>
-          <StampBadge label={note.category} type={note.category as any} />
+          <StampBadge label={note.category || 'THEORY'} type={(note.category || 'THEORY') as any} />
           <Text style={[typography.stampSmall, { color: colors.inkMuted }]}>
             UPDATED {formattedDate}
           </Text>
         </View>
 
         {/* Tags */}
-        {note.tags.length > 0 && (
+        {noteTags.length > 0 && (
           <View style={styles.tagsRow}>
-            {note.tags.map((tag) => (
+            {noteTags.map((tag) => (
               <View
                 key={tag}
                 style={[
@@ -202,7 +207,7 @@ export const NoteReader: React.FC<NoteReaderProps> = ({
         {/* Rendered Markdown Content */}
         <View style={styles.markdownWrapper}>
           <VintageMarkdown
-            content={note.content}
+            content={noteContent}
             onPressWikiLink={handleWikiLinkPress}
           />
         </View>

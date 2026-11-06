@@ -59,15 +59,16 @@ export function extractFrontmatter(markdown: string): {
   body: string;
 } {
   const frontmatter: Record<string, any> = {};
-  const trimmed = markdown.trim();
+  const raw = markdown || '';
+  const trimmed = raw.trim();
 
   if (!trimmed.startsWith('---')) {
-    return { frontmatter, body: markdown };
+    return { frontmatter, body: raw };
   }
 
   const endMarkerIndex = trimmed.indexOf('\n---', 3);
   if (endMarkerIndex === -1) {
-    return { frontmatter, body: markdown };
+    return { frontmatter, body: raw };
   }
 
   const rawYaml = trimmed.substring(3, endMarkerIndex).trim();
@@ -106,9 +107,10 @@ export function extractWikiLinks(
 ): { raw: string; title: string; alias?: string }[] {
   const regex = /\[\[(.*?)\]\]/g;
   const links: { raw: string; title: string; alias?: string }[] = [];
+  const safeContent = content || '';
   let match: RegExpExecArray | null;
 
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(safeContent)) !== null) {
     const raw = match[0];
     const inner = match[1].trim();
     if (!inner) continue;
@@ -136,7 +138,7 @@ export function extractWikiLinks(
  */
 export function extractTags(content: string): string[] {
   const tagSet = new Set<string>();
-  const lines = content.split('\n');
+  const lines = (content || '').split('\n');
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -168,15 +170,16 @@ export function extractTags(content: string): string[] {
  */
 export function parseInlineTokens(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
+  const safeText = text || '';
   let cursor = 0;
-  const len = text.length;
+  const len = safeText.length;
 
   while (cursor < len) {
     // Check for WikiLink: [[Target|Alias]] or [[Target]]
-    if (text.startsWith('[[', cursor)) {
-      const endIdx = text.indexOf(']]', cursor + 2);
+    if (safeText.startsWith('[[', cursor)) {
+      const endIdx = safeText.indexOf(']]', cursor + 2);
       if (endIdx !== -1) {
-        const rawContent = text.slice(cursor + 2, endIdx).trim();
+        const rawContent = safeText.slice(cursor + 2, endIdx).trim();
         let title = rawContent;
         let alias: string | undefined = undefined;
         if (rawContent.includes('|')) {
@@ -196,8 +199,8 @@ export function parseInlineTokens(text: string): InlineToken[] {
     }
 
     // Check for Hashtag: #tag (word boundary or preceded by space/start)
-    if (text[cursor] === '#' && (cursor === 0 || /\s/.test(text[cursor - 1]))) {
-      const rest = text.slice(cursor + 1);
+    if (safeText[cursor] === '#' && (cursor === 0 || /\s/.test(safeText[cursor - 1]))) {
+      const rest = safeText.slice(cursor + 1);
       const match = /^([a-zA-Z0-9_\-]+)/.exec(rest);
       if (match && !/^\d+$/.test(match[1])) {
         const tagName = match[1];
@@ -212,11 +215,11 @@ export function parseInlineTokens(text: string): InlineToken[] {
     }
 
     // Check for Bold: **bold** or __bold__
-    if (text.startsWith('**', cursor) || text.startsWith('__', cursor)) {
-      const marker = text.slice(cursor, cursor + 2);
-      const endIdx = text.indexOf(marker, cursor + 2);
+    if (safeText.startsWith('**', cursor) || safeText.startsWith('__', cursor)) {
+      const marker = safeText.slice(cursor, cursor + 2);
+      const endIdx = safeText.indexOf(marker, cursor + 2);
       if (endIdx !== -1) {
-        const inner = text.slice(cursor + 2, endIdx);
+        const inner = safeText.slice(cursor + 2, endIdx);
         tokens.push({ type: 'bold', text: inner });
         cursor = endIdx + 2;
         continue;
@@ -225,14 +228,14 @@ export function parseInlineTokens(text: string): InlineToken[] {
 
     // Check for Italic: *italic* or _italic_
     if (
-      (text[cursor] === '*' || text[cursor] === '_') &&
-      !text.startsWith('**', cursor) &&
-      !text.startsWith('__', cursor)
+      (safeText[cursor] === '*' || safeText[cursor] === '_') &&
+      !safeText.startsWith('**', cursor) &&
+      !safeText.startsWith('__', cursor)
     ) {
-      const marker = text[cursor];
-      const endIdx = text.indexOf(marker, cursor + 1);
+      const marker = safeText[cursor];
+      const endIdx = safeText.indexOf(marker, cursor + 1);
       if (endIdx !== -1 && endIdx > cursor + 1) {
-        const inner = text.slice(cursor + 1, endIdx);
+        const inner = safeText.slice(cursor + 1, endIdx);
         tokens.push({ type: 'italic', text: inner });
         cursor = endIdx + 1;
         continue;
@@ -240,10 +243,10 @@ export function parseInlineTokens(text: string): InlineToken[] {
     }
 
     // Check for Inline Code: `code`
-    if (text[cursor] === '`') {
-      const endIdx = text.indexOf('`', cursor + 1);
+    if (safeText[cursor] === '`') {
+      const endIdx = safeText.indexOf('`', cursor + 1);
       if (endIdx !== -1) {
-        const inner = text.slice(cursor + 1, endIdx);
+        const inner = safeText.slice(cursor + 1, endIdx);
         tokens.push({ type: 'code', text: inner });
         cursor = endIdx + 1;
         continue;
@@ -251,10 +254,10 @@ export function parseInlineTokens(text: string): InlineToken[] {
     }
 
     // Check for Strikethrough: ~~del~~
-    if (text.startsWith('~~', cursor)) {
-      const endIdx = text.indexOf('~~', cursor + 2);
+    if (safeText.startsWith('~~', cursor)) {
+      const endIdx = safeText.indexOf('~~', cursor + 2);
       if (endIdx !== -1) {
-        const inner = text.slice(cursor + 2, endIdx);
+        const inner = safeText.slice(cursor + 2, endIdx);
         tokens.push({ type: 'strikethrough', text: inner });
         cursor = endIdx + 2;
         continue;
@@ -262,13 +265,13 @@ export function parseInlineTokens(text: string): InlineToken[] {
     }
 
     // Check for Web link: [title](url)
-    if (text[cursor] === '[') {
-      const closeBracket = text.indexOf(']', cursor + 1);
-      if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
-        const closeParen = text.indexOf(')', closeBracket + 2);
+    if (safeText[cursor] === '[') {
+      const closeBracket = safeText.indexOf(']', cursor + 1);
+      if (closeBracket !== -1 && safeText[closeBracket + 1] === '(') {
+        const closeParen = safeText.indexOf(')', closeBracket + 2);
         if (closeParen !== -1) {
-          const title = text.slice(cursor + 1, closeBracket);
-          const url = text.slice(closeBracket + 2, closeParen);
+          const title = safeText.slice(cursor + 1, closeBracket);
+          const url = safeText.slice(closeBracket + 2, closeParen);
           tokens.push({
             type: 'link',
             text: title,
@@ -284,10 +287,10 @@ export function parseInlineTokens(text: string): InlineToken[] {
     let nextSpecial = len;
     const specialChars = ['[', '#', '*', '_', '`', '~'];
     for (const ch of specialChars) {
-      const idx = text.indexOf(ch, cursor);
+      const idx = safeText.indexOf(ch, cursor);
       if (idx !== -1 && idx < nextSpecial) {
         // If it's #, only trigger if at start or preceded by whitespace
-        if (ch === '#' && idx > 0 && !/\s/.test(text[idx - 1])) {
+        if (ch === '#' && idx > 0 && !/\s/.test(safeText[idx - 1])) {
           continue;
         }
         nextSpecial = idx;
@@ -297,13 +300,13 @@ export function parseInlineTokens(text: string): InlineToken[] {
     if (nextSpecial > cursor) {
       tokens.push({
         type: 'text',
-        text: text.slice(cursor, nextSpecial),
+        text: safeText.slice(cursor, nextSpecial),
       });
       cursor = nextSpecial;
     } else {
       tokens.push({
         type: 'text',
-        text: text[cursor],
+        text: safeText[cursor],
       });
       cursor++;
     }

@@ -996,185 +996,195 @@ export async function pullAllFromCloud(): Promise<{
 }
 
 // ==============================================================================
-// Realtime Subscription + Automatic Connectivity Recovery
+// Realtime Subscription + Automatic Connectivity Recovery (Multiplexed)
 // ==============================================================================
 
-export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => void {
-  let currentChannel: ReturnType<SupabaseClient['channel']> | null = null;
-  let currentBoundClient: SupabaseClient | null = null;
+const realtimeListeners = new Set<() => void>();
+let currentChannel: ReturnType<SupabaseClient['channel']> | null = null;
+let currentBoundClient: SupabaseClient | null = null;
+let realtimeAppStateSub: { remove: () => void } | null = null;
+let realtimeOnlineHandler: (() => void) | null = null;
 
-  const cleanupChannel = () => {
-    if (currentBoundClient && currentChannel) {
-      try {
-        currentBoundClient.removeChannel(currentChannel);
-      } catch {}
-    }
-    currentChannel = null;
-    currentBoundClient = null;
-  };
-
-  const bindRealtimeChannel = () => {
-    cleanupChannel();
-    const client = getSupabaseClient();
-    if (!client) return;
-
-    currentBoundClient = client;
-    currentChannel = client
-      .channel('shed_realtime_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'exercises' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'DELETE') {
-              const oldId = payload.old?.id;
-              if (oldId) {
-                deleteLocalExerciseFromCloud(oldId);
-                onDataUpdated();
-              }
-            } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const row = payload.new;
-              if (row && row.id) {
-                const ex = cloudRowToExercise(row);
-                upsertLocalExerciseFromCloud(ex);
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime exercise event error:', err);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'active_standard' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const row = payload.new;
-              if (row && row.title) {
-                const std = cloudRowToStandard(row);
-                upsertLocalStandardFromCloud(std);
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime standard event error:', err);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'practice_logs' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const row = payload.new;
-              if (row && row.id) {
-                const log = cloudRowToPracticeLog(row);
-                upsertLocalPracticeLogsFromCloud([log]);
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime practice_log event error:', err);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'user_sync_state' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const row = payload.new;
-              if (row) {
-                const state = cloudRowToUserState(row);
-                upsertLocalUserStateFromCloud(state);
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime user_sync_state event error:', err);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'session_plan' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const plan = cloudRowToSessionPlan(payload.new);
-              // Only refresh when the row was newer than ours; our own echo is ignored.
-              if (plan && upsertLocalSessionPlanFromCloud(plan)) {
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime session_plan event error:', err);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'knowledge_notes' },
-        (payload) => {
-          try {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              const note = cloudRowToKnowledgeNote(payload.new);
-              if (note && upsertSingleKnowledgeNoteFromCloud(note)) {
-                onDataUpdated();
-              }
-            } else if (payload.eventType === 'DELETE') {
-              if (payload.old?.id) {
-                deleteLocalKnowledgeNoteFromCloud(payload.old.id);
-                onDataUpdated();
-              }
-            }
-          } catch (err) {
-            console.warn('[CloudSync] realtime knowledge_notes event error:', err);
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          setSyncStatus('connected');
-        }
-      });
-  };
-
-  activeRealtimeReconnect = bindRealtimeChannel;
-  bindRealtimeChannel();
-
-  // Re-sync automatically when app returns to foreground
-  const appStateSub = AppState.addEventListener('change', (nextAppState) => {
-    if (nextAppState === 'active') {
-      pullAllFromCloud().then((res) => {
-        if (res.success) onDataUpdated();
-      });
+function notifyRealtimeListeners(): void {
+  realtimeListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (err) {
+      console.warn('[CloudSync] Realtime listener error:', err);
     }
   });
+}
 
-  // Re-sync automatically when browser regains internet connection on Web
-  const handleOnline = () => {
-    pullAllFromCloud().then((res) => {
-      if (res.success) onDataUpdated();
+function cleanupRealtimeChannel(): void {
+  if (currentBoundClient && currentChannel) {
+    try {
+      currentBoundClient.removeChannel(currentChannel);
+    } catch {}
+  }
+  currentChannel = null;
+  currentBoundClient = null;
+}
+
+function bindRealtimeChannel(): void {
+  cleanupRealtimeChannel();
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  currentBoundClient = client;
+  currentChannel = client
+    .channel('shed_realtime_sync')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'exercises' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'DELETE') {
+            const oldId = payload.old?.id;
+            if (oldId) {
+              deleteLocalExerciseFromCloud(oldId);
+              notifyRealtimeListeners();
+            }
+          } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row && row.id) {
+              const ex = cloudRowToExercise(row);
+              upsertLocalExerciseFromCloud(ex);
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime exercise event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'active_standard' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row && row.title) {
+              const std = cloudRowToStandard(row);
+              upsertLocalStandardFromCloud(std);
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime standard event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'practice_logs' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row && row.id) {
+              const log = cloudRowToPracticeLog(row);
+              upsertLocalPracticeLogsFromCloud([log]);
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime practice_log event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'user_sync_state' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const row = payload.new;
+            if (row) {
+              const state = cloudRowToUserState(row);
+              upsertLocalUserStateFromCloud(state);
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime user_sync_state event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'session_plan' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const plan = cloudRowToSessionPlan(payload.new);
+            // Only refresh when the row was newer than ours; our own echo is ignored.
+            if (plan && upsertLocalSessionPlanFromCloud(plan)) {
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime session_plan event error:', err);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'knowledge_notes' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const note = cloudRowToKnowledgeNote(payload.new);
+            if (note && upsertSingleKnowledgeNoteFromCloud(note)) {
+              notifyRealtimeListeners();
+            }
+          } else if (payload.eventType === 'DELETE') {
+            if (payload.old?.id) {
+              deleteLocalKnowledgeNoteFromCloud(payload.old.id);
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime knowledge_notes event error:', err);
+        }
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setSyncStatus('connected');
+      }
     });
-  };
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    window.addEventListener('online', handleOnline);
+}
+
+export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => void {
+  realtimeListeners.add(onDataUpdated);
+
+  if (realtimeListeners.size === 1) {
+    activeRealtimeReconnect = bindRealtimeChannel;
+    bindRealtimeChannel();
+
+    if (!realtimeAppStateSub) {
+      realtimeAppStateSub = AppState.addEventListener('change', (nextAppState) => {
+        if (nextAppState === 'active') {
+          pullAllFromCloud().then((res) => {
+            if (res.success) notifyRealtimeListeners();
+          });
+        }
+      });
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && !realtimeOnlineHandler) {
+      realtimeOnlineHandler = () => {
+        pullAllFromCloud().then((res) => {
+          if (res.success) notifyRealtimeListeners();
+        });
+      };
+      window.addEventListener('online', realtimeOnlineHandler);
+    }
   }
 
   return () => {
-    if (activeRealtimeReconnect === bindRealtimeChannel) {
-      activeRealtimeReconnect = null;
-    }
-    appStateSub.remove();
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.removeEventListener('online', handleOnline);
-    }
-    cleanupChannel();
+    realtimeListeners.delete(onDataUpdated);
   };
 }
 

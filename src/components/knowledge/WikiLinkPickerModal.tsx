@@ -35,13 +35,17 @@ export const WikiLinkPickerModal: React.FC<WikiLinkPickerModalProps> = ({
   const { colors, typography } = useTheme();
   const [search, setSearch] = useState('');
 
-  const filteredNotes = notes.filter((n) => {
+  if (!visible) return null;
+
+  const filteredNotes = (notes || []).filter((n) => {
     if (currentNoteId && n.id === currentNoteId) return false;
     if (!search) return true;
     const q = search.toLowerCase();
+    const title = n.title || '';
+    const tags = n.tags || [];
     return (
-      n.title.toLowerCase().includes(q) ||
-      n.tags.some((t) => t.toLowerCase().includes(q))
+      title.toLowerCase().includes(q) ||
+      tags.some((t) => (t || '').toLowerCase().includes(q))
     );
   });
 
@@ -81,8 +85,8 @@ export const WikiLinkPickerModal: React.FC<WikiLinkPickerModalProps> = ({
         />
 
         {search.trim().length > 0 &&
-          !notes.some(
-            (n) => n.title.toLowerCase() === search.trim().toLowerCase()
+          !(notes || []).some(
+            (n) => (n.title || '').toLowerCase() === search.trim().toLowerCase()
           ) && (
             <Pressable
               onPress={() => handlePick(search.trim())}

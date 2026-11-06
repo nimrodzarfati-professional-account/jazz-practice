@@ -200,10 +200,13 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onSelectNote }) => 
             {graphData.nodes.map((node) => {
               const isSelected = selectedNodeId === node.id;
               const isConnected = connectedNodeIds.has(node.id);
+              const nodeTitle = node.title || '';
+              const nodeTags = Array.isArray(node.tags) ? node.tags : [];
+              const q = filterQuery.toLowerCase();
               const matchesFilter =
                 !filterQuery ||
-                node.title.toLowerCase().includes(filterQuery.toLowerCase()) ||
-                node.tags.some((t) => t.toLowerCase().includes(filterQuery.toLowerCase()));
+                nodeTitle.toLowerCase().includes(q) ||
+                nodeTags.some((t) => (t || '').toLowerCase().includes(q));
 
               const isDimmed =
                 !matchesFilter ||
@@ -301,7 +304,7 @@ export const GraphView: React.FC<GraphViewProps> = ({ notes, onSelectNote }) => 
           </Text>
 
           <View style={styles.tagChipsRow}>
-            {selectedNode.tags.map((tag) => (
+            {(selectedNode.tags || []).map((tag) => (
               <Text
                 key={tag}
                 style={[
