@@ -42,7 +42,12 @@ export const NavItem: React.FC<NavItemProps> = ({
       ]}
     >
       {compact ? (
-        <Text style={[typography.stamp, { color: textColor }]}>{title}</Text>
+        <Text
+          numberOfLines={1}
+          style={[typography.stamp, styles.compactTitle, { color: textColor }]}
+        >
+          {title}
+        </Text>
       ) : (
         <View style={styles.fullRow}>
           <Text style={[typography.monoBold, styles.code, { color: textColor }]}>{code}</Text>
@@ -65,6 +70,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  compactTitle: {
+    fontSize: 10,
+    letterSpacing: 0.8,
   },
   full: {
     minHeight: 50,

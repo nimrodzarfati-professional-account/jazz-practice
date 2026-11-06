@@ -32,6 +32,7 @@ import { ActionSheet } from '../components/ActionSheet';
 
 interface LibraryScreenProps {
   onStartNow: (exerciseId: string) => void;
+  onOpenKnowledge?: (query?: string) => void;
 }
 
 type MembershipFilter = 'ALL' | 'ACTIVE' | 'SAVED' | 'WEEK';
@@ -96,7 +97,7 @@ const FieldLabel: React.FC<{ label: string }> = ({ label }) => {
   return <Text style={[typography.stamp, styles.fieldLabel, { color: colors.inkBlack }]}>{label}</Text>;
 };
 
-export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow }) => {
+export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow, onOpenKnowledge }) => {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
   const { exercises, plan, addExercise: addToToday, reloadFromDb } = useSession();
@@ -345,6 +346,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow }) => {
   const sheetActions = sheetFor
     ? [
         { label: 'START NOW', onPress: () => onStartNow(sheetFor.id) },
+        ...(onOpenKnowledge
+          ? [
+              {
+                label: 'SEARCH IN KNOWLEDGE CODEX',
+                onPress: () => onOpenKnowledge(sheetFor.title),
+              },
+            ]
+          : []),
         {
           label: sheetFor.inRotation ? 'SAVE FOR LATER' : 'MAKE ACTIVE',
           onPress: () => mutate(() => toggleExerciseRotation(sheetFor.id, !sheetFor.inRotation)),
