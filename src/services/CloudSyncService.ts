@@ -31,6 +31,14 @@ import {
   getSessionPlan,
   upsertLocalSessionPlanFromCloud,
 } from '../db/repository';
+import { KnowledgeNote } from '../types/knowledge';
+import {
+  getKnowledgeNotes,
+  registerKnowledgeCloudHandlers,
+  upsertLocalKnowledgeNotesFromCloud,
+  upsertSingleKnowledgeNoteFromCloud,
+  deleteLocalKnowledgeNoteFromCloud,
+} from '../db/knowledgeRepository';
 
 export type SyncConnectionStatus = 'connected' | 'syncing' | 'offline';
 
@@ -366,6 +374,36 @@ export function cloudRowToSessionPlan(row: any): SessionPlan | null {
   return row.body as SessionPlan;
 }
 
+export function knowledgeNoteToCloudRow(note: KnowledgeNote): Record<string, any> {
+  return {
+    id: note.id,
+    title: note.title,
+    slug: note.slug,
+    content: note.content,
+    category: note.category,
+    tags: note.tags,
+    pinned: Boolean(note.pinned),
+    related_exercise_ids: note.relatedExerciseIds || [],
+    created_at: note.createdAt,
+    updated_at: note.updatedAt,
+  };
+}
+
+export function cloudRowToKnowledgeNote(row: any): KnowledgeNote {
+  return {
+    id: row.id,
+    title: row.title || '',
+    slug: row.slug || '',
+    content: row.content || '',
+    category: row.category || 'THEORY',
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    pinned: Boolean(row.pinned),
+    relatedExerciseIds: Array.isArray(row.related_exercise_ids) ? row.related_exercise_ids : [],
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
 // ==============================================================================
 // Direct R/W Operations with Offline Outbox Queue Fallback
 // ==============================================================================
@@ -608,6 +646,93 @@ export async function pushSessionPlanToCloud(plan: SessionPlan): Promise<void> {
   }
 }
 
+export async function pushKnowledgeNoteToCloud(note: KnowledgeNote): Promise<void> {
+  const mutationId = `mut_note_${note.id}`;
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'knowledge_note',
+      action: 'UPSERT',
+      payload: JSON.stringify(note),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client
+      .from('knowledge_notes')
+      .upsert(knowledgeNoteToCloudRow(note));
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        // Optional table not yet migrated in Supabase; do not mark DB offline
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushKnowledgeNote, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'knowledge_note',
+      action: 'UPSERT',
+      payload: JSON.stringify(note),
+      createdAt: new Date().toISOString(),
+    });
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
+  }
+}
+
+export async function pushDeleteKnowledgeNoteToCloud(id: string): Promise<void> {
+  const mutationId = `mut_del_note_${id}`;
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'knowledge_note',
+      action: 'DELETE',
+      payload: JSON.stringify({ id }),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client.from('knowledge_notes').delete().eq('id', id);
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushDeleteKnowledgeNote, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'knowledge_note',
+      action: 'DELETE',
+      payload: JSON.stringify({ id }),
+      createdAt: new Date().toISOString(),
+    });
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
+  }
+}
+
 /**
  * Replays any offline mutations stored in `pending_mutations` to Supabase
  */
@@ -651,6 +776,16 @@ export async function flushPendingMutations(): Promise<void> {
         const { error } = await client
           .from('session_plan')
           .upsert(sessionPlanToCloudRow(plan));
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'knowledge_note' && mut.action === 'UPSERT') {
+        const note: KnowledgeNote = JSON.parse(mut.payload);
+        const { error } = await client
+          .from('knowledge_notes')
+          .upsert(knowledgeNoteToCloudRow(note));
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'knowledge_note' && mut.action === 'DELETE') {
+        const { id } = JSON.parse(mut.payload);
+        const { error } = await client.from('knowledge_notes').delete().eq('id', id);
         if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       }
     } catch {
@@ -822,6 +957,32 @@ export async function pullAllFromCloud(): Promise<{
       console.warn('[CloudSync] Session plan sync notice:', planErr);
     }
 
+    // Step 8: Sync Knowledge Notes (Optional table — ignore schema errors)
+    try {
+      const { data: notesData, error: notesError } = await client
+        .from('knowledge_notes')
+        .select('*');
+
+      if (!notesError && notesData) {
+        const remoteNotes = notesData.map(cloudRowToKnowledgeNote);
+        if (remoteNotes.length > 0) {
+          upsertLocalKnowledgeNotesFromCloud(remoteNotes);
+        } else {
+          // First sync: if cloud is empty, seed cloud with local notes
+          const localNotes = getKnowledgeNotes();
+          if (localNotes.length > 0) {
+            await client
+              .from('knowledge_notes')
+              .upsert(localNotes.map(knowledgeNoteToCloudRow));
+          }
+        }
+      } else if (!isSchemaOrPolicyError(notesError)) {
+        console.warn('[CloudSync] Knowledge notes sync notice:', notesError);
+      }
+    } catch (noteErr) {
+      console.warn('[CloudSync] Knowledge notes sync notice:', noteErr);
+    }
+
     setSyncStatus('connected');
     return { success: true, count: remoteExercises.length };
   } catch (err: any) {
@@ -955,6 +1116,27 @@ export function subscribeToRealtimeChanges(onDataUpdated: () => void): () => voi
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'knowledge_notes' },
+        (payload) => {
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const note = cloudRowToKnowledgeNote(payload.new);
+              if (note && upsertSingleKnowledgeNoteFromCloud(note)) {
+                onDataUpdated();
+              }
+            } else if (payload.eventType === 'DELETE') {
+              if (payload.old?.id) {
+                deleteLocalKnowledgeNoteFromCloud(payload.old.id);
+                onDataUpdated();
+              }
+            }
+          } catch (err) {
+            console.warn('[CloudSync] realtime knowledge_notes event error:', err);
+          }
+        }
+      )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           setSyncStatus('connected');
@@ -1015,5 +1197,14 @@ registerCloudSyncHandlers({
   },
   pushSessionPlan: (plan) => {
     pushSessionPlanToCloud(plan);
+  },
+});
+
+registerKnowledgeCloudHandlers({
+  pushNote: (note) => {
+    pushKnowledgeNoteToCloud(note);
+  },
+  deleteNote: (id) => {
+    pushDeleteKnowledgeNoteToCloud(id);
   },
 });

@@ -24,6 +24,17 @@ import {
 
 const KNOWLEDGE_NOTES_SETTING_KEY = 'shed_v2_knowledge_notes_json';
 
+let onCloudPushNote: ((note: KnowledgeNote) => void) | null = null;
+let onCloudDeleteNote: ((id: string) => void) | null = null;
+
+export function registerKnowledgeCloudHandlers(handlers: {
+  pushNote: (note: KnowledgeNote) => void;
+  deleteNote: (id: string) => void;
+}): void {
+  onCloudPushNote = handlers.pushNote;
+  onCloudDeleteNote = handlers.deleteNote;
+}
+
 /**
  * Normalizes title for comparison
  */
@@ -175,6 +186,9 @@ export function saveKnowledgeNote(
   }
 
   setKnowledgeNotes(notes);
+  if (onCloudPushNote) {
+    onCloudPushNote(savedNote);
+  }
   return savedNote;
 }
 
@@ -185,6 +199,9 @@ export function deleteKnowledgeNote(id: string): void {
   const notes = getKnowledgeNotes();
   const updated = notes.filter((n) => n.id !== id);
   setKnowledgeNotes(updated);
+  if (onCloudDeleteNote) {
+    onCloudDeleteNote(id);
+  }
 }
 
 /**
@@ -197,7 +214,59 @@ export function togglePinNote(id: string): boolean {
   target.pinned = !target.pinned;
   target.updatedAt = new Date().toISOString();
   setKnowledgeNotes(notes);
+  if (onCloudPushNote) {
+    onCloudPushNote(target);
+  }
   return target.pinned;
+}
+
+/**
+ * Merges knowledge notes pulled from cloud into local store (called by CloudSyncService)
+ */
+export function upsertLocalKnowledgeNotesFromCloud(cloudNotes: KnowledgeNote[]): void {
+  initDatabase();
+  const localNotes = getKnowledgeNotes();
+  const map = new Map<string, KnowledgeNote>();
+  for (const n of localNotes) map.set(n.id, n);
+
+  for (const cn of cloudNotes) {
+    const existing = map.get(cn.id);
+    if (!existing || new Date(cn.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+      map.set(cn.id, cn);
+    }
+  }
+
+  const merged = Array.from(map.values()).sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+
+  setKnowledgeNotes(merged);
+}
+
+/**
+ * Update a single knowledge note from a Realtime event (called by CloudSyncService)
+ */
+export function upsertSingleKnowledgeNoteFromCloud(note: KnowledgeNote): boolean {
+  initDatabase();
+  const localNotes = getKnowledgeNotes();
+  const existing = localNotes.find((n) => n.id === note.id);
+  if (!existing || new Date(note.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+    upsertLocalKnowledgeNotesFromCloud([note]);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Delete a local note on remote Realtime delete event (called by CloudSyncService)
+ */
+export function deleteLocalKnowledgeNoteFromCloud(id: string): void {
+  initDatabase();
+  const localNotes = getKnowledgeNotes();
+  const filtered = localNotes.filter((n) => n.id !== id);
+  setKnowledgeNotes(filtered);
 }
 
 /**

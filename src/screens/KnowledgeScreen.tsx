@@ -43,6 +43,7 @@ import { GraphView } from '../components/knowledge/GraphView';
 import { NoteReader } from '../components/knowledge/NoteReader';
 import { NoteEditorModal } from '../components/knowledge/NoteEditorModal';
 import { ImportMarkdownModal } from '../components/knowledge/ImportMarkdownModal';
+import { subscribeToRealtimeChanges } from '../services/CloudSyncService';
 
 interface KnowledgeScreenProps {
   onStartExercise?: (exerciseId: string) => void;
@@ -76,6 +77,10 @@ export const KnowledgeScreen: React.FC<KnowledgeScreenProps> = ({ onStartExercis
 
   useEffect(() => {
     reloadNotes();
+    const unsubscribe = subscribeToRealtimeChanges(() => {
+      reloadNotes();
+    });
+    return () => unsubscribe();
   }, []);
 
   // Compute all unique tags across notes with counts

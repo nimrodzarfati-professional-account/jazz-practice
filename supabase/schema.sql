@@ -128,3 +128,33 @@ DO $$
 BEGIN
   BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.session_plan; EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;
+
+-- 6. Knowledge Notes Table (Obsidian-Style Markdown Notes & Interlinks)
+CREATE TABLE IF NOT EXISTS public.knowledge_notes (
+  id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  content TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'THEORY',
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  pinned BOOLEAN NOT NULL DEFAULT false,
+  related_exercise_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_notes_slug ON public.knowledge_notes(slug);
+CREATE INDEX IF NOT EXISTS idx_knowledge_notes_updated_at ON public.knowledge_notes(updated_at DESC);
+
+ALTER TABLE public.knowledge_notes ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'knowledge_notes' AND policyname = 'Allow public read-write for knowledge_notes') THEN
+    CREATE POLICY "Allow public read-write for knowledge_notes" ON public.knowledge_notes FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.knowledge_notes; EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;
