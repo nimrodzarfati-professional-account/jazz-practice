@@ -24,8 +24,16 @@ import { StampModal } from './src/components/StampModal';
 import { StampButton } from './src/components/StampButton';
 import { StampBadge } from './src/components/StampBadge';
 import { categoryLabel } from './src/utils/format';
-import { toggleExerciseRotation } from './src/db/repository';
-import { isOverdueRotationExercise, getLastPracticedStampLabel } from './src/services/CrateUtils';
+import {
+  toggleExerciseRotation,
+  setExerciseHomework,
+  resolveHomeworkDecision,
+} from './src/db/repository';
+import {
+  isOverdueRotationExercise,
+  isExpiredWeekExercise,
+  getLastPracticedStampLabel,
+} from './src/services/CrateUtils';
 
 type TabRoute = 'today' | 'library' | 'knowledge' | 'progress';
 
@@ -43,18 +51,32 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<TabRoute>('today');
   const [showOverdueModal, setShowOverdueModal] = useState(false);
   const hasTriggeredOverdueRef = useRef(false);
+  const [showWeekExpiredModal, setShowWeekExpiredModal] = useState(false);
+  const hasTriggeredWeekExpiredRef = useRef(false);
+
+  const expiredWeekExercises = useMemo(() => {
+    return exercises.filter((ex) => isExpiredWeekExercise(ex));
+  }, [exercises]);
 
   const overdueExercises = useMemo(() => {
     return exercises.filter((ex) => isOverdueRotationExercise(ex, 7));
   }, [exercises]);
 
   useEffect(() => {
-    if (!hasTriggeredOverdueRef.current && overdueExercises.length > 0) {
+    if (!hasTriggeredWeekExpiredRef.current && expiredWeekExercises.length > 0) {
+      hasTriggeredWeekExpiredRef.current = true;
+      setShowWeekExpiredModal(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } else if (
+      !hasTriggeredOverdueRef.current &&
+      !showWeekExpiredModal &&
+      overdueExercises.length > 0
+    ) {
       hasTriggeredOverdueRef.current = true;
       setShowOverdueModal(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
-  }, [overdueExercises]);
+  }, [expiredWeekExercises, overdueExercises, showWeekExpiredModal]);
 
   const handleStartNow = (exerciseId: string) => {
     startNow(exerciseId);
@@ -82,6 +104,52 @@ function AppContent() {
   const handleDismissOverdue = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowOverdueModal(false);
+  };
+
+  const handleKeepThisWeek = (exerciseId: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setExerciseHomework(exerciseId, true);
+    reloadFromDb();
+    if (expiredWeekExercises.length <= 1) {
+      setShowWeekExpiredModal(false);
+    }
+  };
+
+  const handleMoveToSaveForLater = (exerciseId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    resolveHomeworkDecision(exerciseId, 'vault');
+    reloadFromDb();
+    if (expiredWeekExercises.length <= 1) {
+      setShowWeekExpiredModal(false);
+    }
+  };
+
+  const handleKeepActiveInRotation = (exerciseId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    resolveHomeworkDecision(exerciseId, 'keep');
+    reloadFromDb();
+    if (expiredWeekExercises.length <= 1) {
+      setShowWeekExpiredModal(false);
+    }
+  };
+
+  const handleKeepAllThisWeek = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    expiredWeekExercises.forEach((ex) => setExerciseHomework(ex.id, true));
+    setShowWeekExpiredModal(false);
+    reloadFromDb();
+  };
+
+  const handleSaveAllExpiredForLater = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    expiredWeekExercises.forEach((ex) => resolveHomeworkDecision(ex.id, 'vault'));
+    setShowWeekExpiredModal(false);
+    reloadFromDb();
+  };
+
+  const handleDismissWeekExpired = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowWeekExpiredModal(false);
   };
 
   const screen =
@@ -147,6 +215,90 @@ function AppContent() {
           </View>
         </>
       )}
+
+      {/* 7-Day "THIS WEEK" Expiration Review Modal */}
+      <StampModal
+        visible={showWeekExpiredModal}
+        title="THIS WEEK CYCLE COMPLETED"
+        subtitle={
+          expiredWeekExercises.length === 1
+            ? "1 drill has been in 'THIS WEEK' for over a week. Choose to keep this week or move to save for later:"
+            : `${expiredWeekExercises.length} drills have been in 'THIS WEEK' for over a week. Choose to keep this week or move to save for later:`
+        }
+        onClose={handleDismissWeekExpired}
+        actions={
+          <>
+            {expiredWeekExercises.length > 1 && (
+              <StampButton
+                label="SAVE ALL FOR LATER"
+                variant="tertiary"
+                size="sm"
+                onPress={handleSaveAllExpiredForLater}
+              />
+            )}
+            {expiredWeekExercises.length > 1 && (
+              <StampButton
+                label="KEEP ALL THIS WEEK"
+                variant="primary"
+                size="sm"
+                onPress={handleKeepAllThisWeek}
+              />
+            )}
+            {expiredWeekExercises.length <= 1 && (
+              <StampButton
+                label="DECIDE LATER"
+                variant="tertiary"
+                size="sm"
+                onPress={handleDismissWeekExpired}
+              />
+            )}
+          </>
+        }
+      >
+        {expiredWeekExercises.map((item) => (
+          <View
+            key={item.id}
+            style={[
+              styles.overdueCard,
+              { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
+            ]}
+          >
+            <View style={styles.overdueInfo}>
+              <View style={styles.overdueBadges}>
+                <StampBadge label="THIS WEEK • 7D COMPLETED" tone="primary" filled />
+                <StampBadge label={item.context} type={item.context} />
+                <StampBadge label={categoryLabel(item.category)} type={item.category} />
+              </View>
+              <Text style={[typography.title, styles.overdueTitle, { color: colors.inkBlack }]}>
+                {item.title}
+              </Text>
+              <Text style={[typography.monoBold, styles.overdueMeta, { color: colors.inkMuted }]}>
+                {item.durationMinutes} MIN • ♩{item.currentBpm} • {getLastPracticedStampLabel(item.lastPracticedAt)}
+              </Text>
+            </View>
+            <View style={styles.overdueActions}>
+              <StampButton
+                label="KEEP THIS WEEK"
+                variant="primary"
+                size="sm"
+                onPress={() => handleKeepThisWeek(item.id)}
+              />
+              <StampButton
+                label="SAVE FOR LATER"
+                variant="tertiary"
+                size="sm"
+                onPress={() => handleMoveToSaveForLater(item.id)}
+              />
+              <StampButton
+                label="KEEP ACTIVE"
+                variant="tertiary"
+                size="sm"
+                onPress={() => handleKeepActiveInRotation(item.id)}
+              />
+            </View>
+          </View>
+        ))}
+      </StampModal>
 
       <StampModal
         visible={showOverdueModal}
@@ -273,6 +425,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     padding: 12,
     gap: 8,
+    marginBottom: 8,
   },
   overdueInfo: {
     gap: 4,
@@ -290,6 +443,7 @@ const styles = StyleSheet.create({
   },
   overdueActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 4,
   },

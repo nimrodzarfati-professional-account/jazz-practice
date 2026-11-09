@@ -54,6 +54,17 @@ export function getHomeworkStats(
 }
 
 /**
+ * Checks if an exercise has been in "THIS WEEK" for 7 or more days and has completed its weekly cycle
+ */
+export function isExpiredWeekExercise(
+  exercise: Exercise,
+  now: Date = new Date()
+): boolean {
+  if (!exercise.isHomework || !exercise.homeworkStartedAt) return false;
+  return getHomeworkStats(exercise, now).isExpired;
+}
+
+/**
  * Formats time elapsed since last practiced into a human-readable stamp (e.g. "3d ago", "7m ago", "Never practiced")
  */
 export function formatTimeSincePracticed(

@@ -17,6 +17,7 @@ import {
   parseBulkExercisesInput,
   getLastPracticedStampLabel,
   isOverdueRotationExercise,
+  getHomeworkStats,
 } from '../services/CrateUtils';
 import { categoryLabel } from '../utils/format';
 import { CreamBlock } from '../components/CreamBlock';
@@ -270,6 +271,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow, onOpen
   const renderCard = (ex: Exercise) => {
     const alreadyInPlan = inPlan.has(ex.id);
     const isOverdue = isOverdueRotationExercise(ex, 7);
+    const hwStats = getHomeworkStats(ex);
     const meta = [
       `${ex.durationMinutes} MIN`,
       `♩${ex.currentBpm}`,
@@ -284,7 +286,13 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow, onOpen
           <View style={styles.badges}>
             <StampBadge label={ex.context} type={ex.context} />
             <StampBadge label={categoryLabel(ex.category)} type={ex.category} />
-            {ex.isHomework && <StampBadge label="THIS WEEK" tone="primary" filled />}
+            {ex.isHomework && (
+              <StampBadge
+                label={hwStats.isExpired ? 'THIS WEEK • EXPIRED' : 'THIS WEEK'}
+                tone={hwStats.isExpired ? 'secondary' : 'primary'}
+                filled
+              />
+            )}
             {!ex.inRotation && <StampBadge label="SAVED" tone="neutral" />}
             <StampBadge
               label={
@@ -358,6 +366,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onStartNow, onOpen
           label: sheetFor.inRotation ? 'SAVE FOR LATER' : 'MAKE ACTIVE',
           onPress: () => mutate(() => toggleExerciseRotation(sheetFor.id, !sheetFor.inRotation)),
         },
+        ...(sheetFor.isHomework && getHomeworkStats(sheetFor).isExpired
+          ? [
+              {
+                label: 'RENEW THIS WEEK (7D)',
+                onPress: () => mutate(() => setExerciseHomework(sheetFor.id, true)),
+              },
+            ]
+          : []),
         {
           label: sheetFor.isHomework ? 'REMOVE FROM THIS WEEK' : 'ADD TO THIS WEEK',
           onPress: () => mutate(() => setExerciseHomework(sheetFor.id, !sheetFor.isHomework)),
