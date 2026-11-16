@@ -11,7 +11,14 @@ import {
 
 export interface PendingMutation {
   id: string;
-  entityType: 'exercise' | 'standard' | 'practice_log' | 'user_state' | 'session_plan' | 'knowledge_note';
+  entityType:
+    | 'exercise'
+    | 'standard'
+    | 'practice_log'
+    | 'user_state'
+    | 'session_plan'
+    | 'knowledge_note'
+    | 'repertoire_standard';
   action: 'UPSERT' | 'DELETE';
   payload: string; // JSON string of Exercise, ActiveStandard, SessionLogEntry, UserSyncState, SessionPlan, KnowledgeNote, or { id: string }
   createdAt: string;

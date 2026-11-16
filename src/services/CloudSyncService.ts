@@ -39,6 +39,18 @@ import {
   upsertSingleKnowledgeNoteFromCloud,
   deleteLocalKnowledgeNoteFromCloud,
 } from '../db/knowledgeRepository';
+import {
+  RepertoireStandard,
+  StandardStyle,
+  STANDARD_STYLES,
+} from '../types/pokedex';
+import {
+  registerRepertoireCloudHandlers,
+  getStoredRepertoireStandards,
+  upsertLocalRepertoireFromCloud,
+  upsertSingleRepertoireFromCloud,
+  deleteLocalRepertoireFromCloud,
+} from '../db/pokedexRepository';
 
 export type SyncConnectionStatus = 'connected' | 'syncing' | 'offline';
 
@@ -404,6 +416,54 @@ export function cloudRowToKnowledgeNote(row: any): KnowledgeNote {
   };
 }
 
+export function repertoireToCloudRow(std: RepertoireStandard) {
+  return {
+    id: std.id,
+    title: std.title,
+    default_key: std.defaultKey,
+    known_keys: std.knownKeys,
+    style: std.style,
+    composer: std.composer,
+    notes: std.notes,
+    is_known: std.isKnown,
+    is_custom: std.isCustom,
+    updated_at: std.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function cloudRowToRepertoire(row: any): RepertoireStandard {
+  const defaultKey = (row.default_key || 'C') as PitchKey;
+  let knownKeys: PitchKey[] = [defaultKey];
+  if (Array.isArray(row.known_keys) && row.known_keys.length > 0) {
+    knownKeys = row.known_keys as PitchKey[];
+  } else if (typeof row.known_keys === 'string') {
+    try {
+      const parsed = JSON.parse(row.known_keys);
+      if (Array.isArray(parsed) && parsed.length > 0) knownKeys = parsed;
+    } catch {
+      // fallback to [defaultKey]
+    }
+  }
+
+  const rawStyle = row.style || 'SWING';
+  const style: StandardStyle = STANDARD_STYLES.includes(rawStyle)
+    ? rawStyle
+    : 'SWING';
+
+  return {
+    id: String(row.id),
+    title: String(row.title || ''),
+    composer: String(row.composer || ''),
+    defaultKey,
+    knownKeys,
+    style,
+    notes: String(row.notes || ''),
+    isKnown: Boolean(row.is_known),
+    isCustom: Boolean(row.is_custom),
+    updatedAt: String(row.updated_at || new Date().toISOString()),
+  };
+}
+
 // ==============================================================================
 // Direct R/W Operations with Offline Outbox Queue Fallback
 // ==============================================================================
@@ -733,6 +793,92 @@ export async function pushDeleteKnowledgeNoteToCloud(id: string): Promise<void> 
   }
 }
 
+export async function pushRepertoireStandardToCloud(std: RepertoireStandard): Promise<void> {
+  const mutationId = `mut_rep_${std.id}`;
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'repertoire_standard',
+      action: 'UPSERT',
+      payload: JSON.stringify(std),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client
+      .from('repertoire_standards')
+      .upsert(repertoireToCloudRow(std), { onConflict: 'id' });
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushRepertoireStandard, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'repertoire_standard',
+      action: 'UPSERT',
+      payload: JSON.stringify(std),
+      createdAt: new Date().toISOString(),
+    });
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
+  }
+}
+
+export async function pushDeleteRepertoireStandardFromCloud(id: string): Promise<void> {
+  const mutationId = `mut_del_rep_${id}`;
+  const client = getSupabaseClient();
+
+  if (!client) {
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'repertoire_standard',
+      action: 'DELETE',
+      payload: JSON.stringify({ id }),
+      createdAt: new Date().toISOString(),
+    });
+    setSyncStatus('offline');
+    return;
+  }
+
+  try {
+    const { error } = await client.from('repertoire_standards').delete().eq('id', id);
+    if (error) {
+      if (isSchemaOrPolicyError(error)) {
+        removePendingMutation(mutationId);
+        return;
+      }
+      throw error;
+    }
+    removePendingMutation(mutationId);
+    setSyncStatus('connected');
+  } catch (err) {
+    console.warn('[CloudSync] Offline or failed pushDeleteRepertoireStandard, queued for retry:', err);
+    savePendingMutation({
+      id: mutationId,
+      entityType: 'repertoire_standard',
+      action: 'DELETE',
+      payload: JSON.stringify({ id }),
+      createdAt: new Date().toISOString(),
+    });
+    if (!isSchemaOrPolicyError(err)) {
+      setSyncStatus('offline');
+    }
+  }
+}
+
 /**
  * Replays any offline mutations stored in `pending_mutations` to Supabase
  */
@@ -786,6 +932,16 @@ export async function flushPendingMutations(): Promise<void> {
       } else if (mut.entityType === 'knowledge_note' && mut.action === 'DELETE') {
         const { id } = JSON.parse(mut.payload);
         const { error } = await client.from('knowledge_notes').delete().eq('id', id);
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'repertoire_standard' && mut.action === 'UPSERT') {
+        const std: RepertoireStandard = JSON.parse(mut.payload);
+        const { error } = await client
+          .from('repertoire_standards')
+          .upsert(repertoireToCloudRow(std));
+        if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
+      } else if (mut.entityType === 'repertoire_standard' && mut.action === 'DELETE') {
+        const { id } = JSON.parse(mut.payload);
+        const { error } = await client.from('repertoire_standards').delete().eq('id', id);
         if (!error || isSchemaOrPolicyError(error)) removePendingMutation(mut.id);
       }
     } catch {
@@ -983,6 +1139,31 @@ export async function pullAllFromCloud(): Promise<{
       console.warn('[CloudSync] Knowledge notes sync notice:', noteErr);
     }
 
+    // Step 9: Sync Repertoire Standards (Optional table — ignore schema errors)
+    try {
+      const { data: repData, error: repError } = await client
+        .from('repertoire_standards')
+        .select('*');
+
+      if (!repError && Array.isArray(repData)) {
+        const cloudStandards = repData.map(cloudRowToRepertoire);
+        upsertLocalRepertoireFromCloud(cloudStandards);
+
+        // Push any local repertoire rows not yet on the cloud
+        const cloudIds = new Set(cloudStandards.map((s) => s.id));
+        const localOnly = getStoredRepertoireStandards().filter((s) => !cloudIds.has(s.id));
+        if (localOnly.length > 0) {
+          await client
+            .from('repertoire_standards')
+            .upsert(localOnly.map(repertoireToCloudRow));
+        }
+      } else if (!isSchemaOrPolicyError(repError)) {
+        console.warn('[CloudSync] Repertoire standards sync notice:', repError);
+      }
+    } catch (repErr) {
+      console.warn('[CloudSync] Repertoire standards sync notice:', repErr);
+    }
+
     setSyncStatus('connected');
     return { success: true, count: remoteExercises.length };
   } catch (err: any) {
@@ -1149,6 +1330,27 @@ function bindRealtimeChannel(): void {
         }
       }
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'repertoire_standards' },
+      (payload) => {
+        try {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const std = cloudRowToRepertoire(payload.new);
+            if (std && upsertSingleRepertoireFromCloud(std)) {
+              notifyRealtimeListeners();
+            }
+          } else if (payload.eventType === 'DELETE') {
+            if (payload.old?.id) {
+              deleteLocalRepertoireFromCloud(String(payload.old.id));
+              notifyRealtimeListeners();
+            }
+          }
+        } catch (err) {
+          console.warn('[CloudSync] realtime repertoire_standards event error:', err);
+        }
+      }
+    )
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         setSyncStatus('connected');
@@ -1216,5 +1418,14 @@ registerKnowledgeCloudHandlers({
   },
   deleteNote: (id) => {
     pushDeleteKnowledgeNoteToCloud(id);
+  },
+});
+
+registerRepertoireCloudHandlers({
+  pushStandard: (std) => {
+    void pushRepertoireStandardToCloud(std);
+  },
+  deleteStandard: (id) => {
+    void pushDeleteRepertoireStandardFromCloud(id);
   },
 });

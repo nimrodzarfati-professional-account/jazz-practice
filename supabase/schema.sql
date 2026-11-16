@@ -158,3 +158,36 @@ DO $$
 BEGIN
   BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.knowledge_notes; EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;
+
+
+-- 7. Repertoire Standards Table (1,500 Standards Benchmark & Jam Repertoire)
+CREATE TABLE IF NOT EXISTS public.repertoire_standards (
+  id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL,
+  default_key TEXT NOT NULL DEFAULT 'C',
+  known_keys JSONB NOT NULL DEFAULT '["C"]'::jsonb,
+  style TEXT NOT NULL DEFAULT 'SWING',
+  composer TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  is_known BOOLEAN NOT NULL DEFAULT true,
+  is_custom BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.repertoire_standards ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'repertoire_standards' AND policyname = 'Allow public access to repertoire_standards') THEN
+    CREATE POLICY "Allow public access to repertoire_standards"
+      ON public.repertoire_standards
+      FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.repertoire_standards; EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;

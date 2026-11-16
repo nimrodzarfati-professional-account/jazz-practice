@@ -37,7 +37,7 @@ export const CurrentSongCard: React.FC<CurrentSongCardProps> = ({ onOpenDex }) =
         <StampButton label="CHANGE SONG" variant="tertiary" size="sm" onPress={() => setModalOpen(true)} />
         {onOpenDex && (
           <StampButton
-            label="JAZZ-DEX 📖"
+            label="REPERTOIRE"
             variant="secondary"
             size="sm"
             onPress={onOpenDex}

@@ -41,7 +41,7 @@ type TabRoute = 'today' | 'library' | 'standards' | 'knowledge' | 'progress';
 const TABS: { id: TabRoute; code: string; title: string; subtitle: string }[] = [
   { id: 'today', code: '01', title: 'TODAY', subtitle: 'Plan & practice' },
   { id: 'library', code: '02', title: 'LIBRARY', subtitle: 'Exercises' },
-  { id: 'standards', code: '03', title: 'STANDARDS', subtitle: 'Jazz Pokédex' },
+  { id: 'standards', code: '03', title: 'STANDARDS', subtitle: 'Repertoire' },
   { id: 'knowledge', code: '04', title: 'CODEX', subtitle: 'Knowledge Base (MD)' },
   { id: 'progress', code: '05', title: 'PROGRESS', subtitle: 'History & settings' },
 ];

@@ -1,37 +1,40 @@
-/**
- * Jazz-Dex (Pokédex for Jazz Standards) Repository
- *
- * Persists standards, status (Caught/Seen/Locked), mastered keys, and jam notes.
- * Automatically synchronizes with practice sessions & weekly active standards.
- */
-import { PokedexStandard, PokedexStats } from '../types/pokedex';
+import { Platform } from 'react-native';
+import * as SQLite from 'expo-sqlite';
+import {
+  RepertoireStandard,
+  RepertoireStats,
+  StandardStyle,
+  STANDARD_STYLES,
+  TOTAL_KNOWN_STANDARDS_BENCHMARK,
+} from '../types/pokedex';
 import { PitchKey } from '../types/models';
 import {
   getAppSetting,
   setAppSetting,
   initDatabase,
   getPracticeLogs,
-  getActiveStandard,
-  rotateActiveStandard,
   registerPracticeLogRecordedListener,
-  registerStandardRotatedListener,
 } from './repository';
-import { SEED_POKEDEX_STANDARDS } from './seedPokedex';
+import { CATALOG_STANDARDS_TUPLES, standardIdFromTitle } from './seedPokedex';
 
-const POKEDEX_SETTING_KEY = 'shed_v2_pokedex_json';
+const REPERTOIRE_WEB_MIRROR_KEY = 'shed_v2_repertoire_rows_json';
+const LEGACY_POKEDEX_KEY = 'shed_v2_pokedex_json';
+const MIGRATED_FLAG_KEY = 'shed_v2_repertoire_migrated_v1';
 
-// Automatically trigger sync when practice sessions or rotations occur
-registerPracticeLogRecordedListener(() => {
-  syncPokedexWithPracticeHistory();
-});
+let sqliteDb: SQLite.SQLiteDatabase | null = null;
+let tableInitialized = false;
 
-registerStandardRotatedListener(() => {
-  syncPokedexWithPracticeHistory();
-});
+let onCloudPushStandard: ((std: RepertoireStandard) => void) | null = null;
+let onCloudDeleteStandard: ((id: string) => void) | null = null;
 
-/**
- * Normalizes title for loose comparison (e.g. "Take the 'A' Train" -> "taketheatrain")
- */
+export function registerRepertoireCloudHandlers(handlers: {
+  pushStandard: (std: RepertoireStandard) => void;
+  deleteStandard: (id: string) => void;
+}): void {
+  onCloudPushStandard = handlers.pushStandard;
+  onCloudDeleteStandard = handlers.deleteStandard;
+}
+
 export function normalizeStandardTitle(title: string): string {
   return (title || '')
     .toLowerCase()
@@ -39,345 +42,434 @@ export function normalizeStandardTitle(title: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-/**
- * Saves standards array to local persistent store.
- */
-function savePokedex(list: PokedexStandard[]): void {
-  initDatabase();
+function parseKeysJson(raw: string | undefined, fallback: PitchKey): PitchKey[] {
+  if (!raw) return [fallback];
   try {
-    setAppSetting(POKEDEX_SETTING_KEY, JSON.stringify(list));
-  } catch (err) {
-    console.warn('[PokedexRepo] Error saving dex:', err);
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed as PitchKey[];
+    }
+  } catch {
+    // ignore
   }
+  return [fallback];
 }
 
-/**
- * Synchronizes the Pokédex with actual practice logs & the current active standard.
- *
- * Rules:
- * 1. If an active standard was practiced in the weekly cycle (or active for >= 7 days),
- *    it automatically unlocks to 'CAUGHT'.
- * 2. Any standard with practice logs is upgraded to 'CAUGHT' or 'SEEN' with practice count.
- * 3. If an active standard isn't in the dex, it is automatically added as a custom entry.
- */
-export function syncPokedexWithPracticeHistory(): PokedexStandard[] {
+function ensureRepertoireTable(): void {
+  if (tableInitialized) return;
   initDatabase();
-  const raw = getAppSetting(POKEDEX_SETTING_KEY);
-  let list: PokedexStandard[] = [];
 
-  if (!raw) {
-    list = [...SEED_POKEDEX_STANDARDS];
-  } else {
+  if (Platform.OS !== 'web') {
     try {
-      list = JSON.parse(raw);
-      if (!Array.isArray(list) || list.length === 0) {
-        list = [...SEED_POKEDEX_STANDARDS];
+      sqliteDb = SQLite.openDatabaseSync('shed_engine_v2.db');
+      sqliteDb.execSync(`
+        CREATE TABLE IF NOT EXISTS repertoire_standards (
+          id TEXT PRIMARY KEY NOT NULL,
+          title TEXT NOT NULL,
+          default_key TEXT NOT NULL DEFAULT 'C',
+          known_keys TEXT NOT NULL DEFAULT '["C"]',
+          style TEXT NOT NULL DEFAULT 'SWING',
+          composer TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          is_known INTEGER NOT NULL DEFAULT 1,
+          is_custom INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    } catch (err) {
+      console.warn('[RepertoireRepo] SQLite init fallback:', err);
+      sqliteDb = null;
+    }
+  }
+
+  tableInitialized = true;
+  migrateLegacyPokedexIfNeeded();
+}
+
+function readStoredRows(): Map<string, RepertoireStandard> {
+  ensureRepertoireTable();
+  const map = new Map<string, RepertoireStandard>();
+
+  // 1. Read Web / AppSetting Mirror
+  const rawMirror = getAppSetting(REPERTOIRE_WEB_MIRROR_KEY);
+  if (rawMirror) {
+    try {
+      const list = JSON.parse(rawMirror) as RepertoireStandard[];
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item && item.id) map.set(item.id, item);
+        }
       }
     } catch {
-      list = [...SEED_POKEDEX_STANDARDS];
+      // ignore
     }
   }
 
+  // 2. Read Native SQLite Table (Source of Truth on device)
+  if (sqliteDb) {
+    try {
+      const rows = sqliteDb.getAllSync<any>('SELECT * FROM repertoire_standards;');
+      for (const r of rows) {
+        const defaultKey = (r.default_key || 'C') as PitchKey;
+        const std: RepertoireStandard = {
+          id: r.id,
+          title: r.title,
+          composer: r.composer || '',
+          defaultKey,
+          knownKeys: parseKeysJson(r.known_keys, defaultKey),
+          style: (r.style || 'SWING') as StandardStyle,
+          notes: r.notes || '',
+          isKnown: Boolean(r.is_known),
+          isCustom: Boolean(r.is_custom),
+          updatedAt: r.updated_at || new Date().toISOString(),
+        };
+        map.set(std.id, std);
+      }
+    } catch (err) {
+      console.warn('[RepertoireRepo] Failed reading SQLite rows:', err);
+    }
+  }
+
+  return map;
+}
+
+function persistRow(
+  std: RepertoireStandard,
+  allRowsMap?: Map<string, RepertoireStandard>,
+  skipCloudPush = false
+): void {
+  ensureRepertoireTable();
+
+  if (sqliteDb) {
+    try {
+      sqliteDb.runSync(
+        `INSERT OR REPLACE INTO repertoire_standards
+         (id, title, default_key, known_keys, style, composer, notes, is_known, is_custom, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          std.id,
+          std.title,
+          std.defaultKey,
+          JSON.stringify(std.knownKeys),
+          std.style,
+          std.composer,
+          std.notes,
+          std.isKnown ? 1 : 0,
+          std.isCustom ? 1 : 0,
+          std.updatedAt,
+        ]
+      );
+    } catch (err) {
+      console.warn('[RepertoireRepo] SQLite write error:', err);
+    }
+  }
+
+  const map = allRowsMap ?? readStoredRows();
+  map.set(std.id, std);
+  setAppSetting(REPERTOIRE_WEB_MIRROR_KEY, JSON.stringify(Array.from(map.values())));
+
+  if (!skipCloudPush && onCloudPushStandard) {
+    onCloudPushStandard(std);
+  }
+}
+
+function migrateLegacyPokedexIfNeeded(): void {
+  if (getAppSetting(MIGRATED_FLAG_KEY) === '1') return;
+
+  const rawLegacy = getAppSetting(LEGACY_POKEDEX_KEY);
+  if (rawLegacy) {
+    try {
+      const legacyList = JSON.parse(rawLegacy);
+      if (Array.isArray(legacyList)) {
+        const map = new Map<string, RepertoireStandard>();
+        for (const old of legacyList) {
+          if (old && (old.status === 'CAUGHT' || old.isCustom)) {
+            const id = standardIdFromTitle(old.title || old.id);
+            const defaultKey = (old.defaultKey || 'C') as PitchKey;
+            const knownKeys = Array.isArray(old.masteredKeys) && old.masteredKeys.length > 0
+              ? (old.masteredKeys as PitchKey[])
+              : [defaultKey];
+            const rawStyle = Array.isArray(old.types) ? old.types[0] : 'SWING';
+            const style: StandardStyle = STANDARD_STYLES.includes(rawStyle) ? rawStyle : 'SWING';
+
+            const migrated: RepertoireStandard = {
+              id,
+              title: old.title,
+              composer: old.composer || '',
+              defaultKey,
+              knownKeys,
+              style,
+              notes: old.personalNotes || '',
+              isKnown: old.status === 'CAUGHT',
+              isCustom: Boolean(old.isCustom),
+              updatedAt: old.unlockedAt || new Date().toISOString(),
+            };
+            persistRow(migrated, map, true);
+          }
+        }
+      }
+    } catch {
+      // ignore corrupt legacy data
+    }
+  }
+
+  setAppSetting(MIGRATED_FLAG_KEY, '1');
+}
+
+/**
+ * Merges the static catalog with user's database rows and practice log history.
+ */
+export function getPokedexStandards(): RepertoireStandard[] {
+  const storedMap = readStoredRows();
   const logs = getPracticeLogs();
-  const activeStd = getActiveStandard();
-  let hasChanges = false;
 
-  // 1. Group logs by normalized standard title
-  const logsByStd = new Map<
-    string,
-    { count: number; lastDate: string; keys: Set<PitchKey> }
-  >();
-
+  // Check if any practiced standards should be marked known automatically
   for (const log of logs) {
     if (!log.standardTitle) continue;
-    const norm = normalizeStandardTitle(log.standardTitle);
-    if (!norm) continue;
+    const id = standardIdFromTitle(log.standardTitle);
+    const existing = storedMap.get(id);
+    if (!existing) {
+      // Find in catalog if possible
+      const tuple = CATALOG_STANDARDS_TUPLES.find(
+        ([t]) => normalizeStandardTitle(t) === normalizeStandardTitle(log.standardTitle!)
+      );
+      const defaultKey = tuple ? tuple[1] : 'C';
+      const loggedKeys =
+        Array.isArray(log.masteredKeys) && log.masteredKeys.length > 0
+          ? log.masteredKeys
+          : [defaultKey];
 
-    const existing = logsByStd.get(norm) || {
-      count: 0,
-      lastDate: log.practicedAt,
-      keys: new Set<PitchKey>(),
-    };
-
-    existing.count += 1;
-    if (new Date(log.practicedAt) > new Date(existing.lastDate)) {
-      existing.lastDate = log.practicedAt;
-    }
-    if (Array.isArray(log.masteredKeys)) {
-      log.masteredKeys.forEach((k) => existing.keys.add(k));
-    }
-    logsByStd.set(norm, existing);
-  }
-
-  // 2. Check current Active Standard cycle
-  const activeNorm = normalizeStandardTitle(activeStd.title);
-  const activeStartedMs = new Date(activeStd.startedAt).getTime();
-  const daysActive = Number.isNaN(activeStartedMs)
-    ? 0
-    : Math.floor((Date.now() - activeStartedMs) / 86400000);
-  const isActiveWeekCompleted = daysActive >= 7;
-
-  // 3. Update existing dex items
-  let activeFoundInDex = false;
-
-  list = list.map((item) => {
-    const itemNorm = normalizeStandardTitle(item.title);
-    const logData = logsByStd.get(itemNorm);
-    const isActiveStandard = itemNorm === activeNorm;
-    if (isActiveStandard) activeFoundInDex = true;
-
-    let nextStatus = item.status;
-    let nextTimesPracticed = item.timesPracticed || 0;
-    let nextLastPracticed = item.lastPracticedAt;
-    let nextUnlockedAt = item.unlockedAt;
-    const nextMasteredKeys = new Set(item.masteredKeys || []);
-
-    if (logData) {
-      nextTimesPracticed = Math.max(nextTimesPracticed, logData.count);
-      nextLastPracticed = logData.lastDate;
-      logData.keys.forEach((k) => nextMasteredKeys.add(k));
-
-      // Practiced in a session -> opens / unlocks!
-      if (nextStatus !== 'CAUGHT') {
-        nextStatus = 'CAUGHT';
-        nextUnlockedAt = nextUnlockedAt || logData.lastDate;
-        hasChanges = true;
-      }
-    }
-
-    // Active standard rules
-    if (isActiveStandard) {
-      if (isActiveWeekCompleted) {
-        // Completed week with this standard -> definitely unlock!
-        if (nextStatus !== 'CAUGHT') {
-          nextStatus = 'CAUGHT';
-          nextUnlockedAt = nextUnlockedAt || new Date().toISOString();
-          hasChanges = true;
-        }
-      } else if (nextStatus === 'LOCKED') {
-        // Currently active in practice -> Mark as SEEN / IN TRAINING
-        nextStatus = 'SEEN';
-        hasChanges = true;
-      }
-    }
-
-    if (
-      nextStatus !== item.status ||
-      nextTimesPracticed !== item.timesPracticed ||
-      nextLastPracticed !== item.lastPracticedAt ||
-      nextUnlockedAt !== item.unlockedAt ||
-      nextMasteredKeys.size !== (item.masteredKeys || []).length
-    ) {
-      hasChanges = true;
-      return {
-        ...item,
-        status: nextStatus,
-        timesPracticed: nextTimesPracticed,
-        practiceCount: nextTimesPracticed,
-        lastPracticedAt: nextLastPracticed,
-        unlockedAt: nextUnlockedAt,
-        masteredKeys: Array.from(nextMasteredKeys),
+      const autoKnown: RepertoireStandard = {
+        id: tuple ? standardIdFromTitle(tuple[0]) : id,
+        title: tuple ? tuple[0] : log.standardTitle.trim(),
+        composer: tuple ? tuple[3] : '',
+        defaultKey,
+        knownKeys: loggedKeys,
+        style: tuple ? tuple[2] : 'SWING',
+        notes: '',
+        isKnown: true,
+        isCustom: !tuple,
+        updatedAt: log.practicedAt,
       };
+      persistRow(autoKnown, storedMap);
     }
-    return item;
-  });
-
-  // 4. If current active standard is not in the Dex at all, automatically add it
-  if (!activeFoundInDex && activeStd.title.trim()) {
-    const maxDexNum = list.reduce((max, s) => Math.max(max, s.dexNumber || 0), 0);
-    const newEntry: PokedexStandard = {
-      id: `dex_custom_${Date.now()}`,
-      dexNumber: maxDexNum + 1,
-      title: activeStd.title.trim(),
-      composer: 'Current Shed Focus',
-      year: new Date().getFullYear(),
-      types: ['SWING'],
-      defaultKey: activeStd.defaultKey,
-      masteredKeys: [activeStd.defaultKey],
-      form: '32-Bar Standard',
-      tempoBpm: 140,
-      tempoLabel: 'Medium Swing',
-      tier: 'CORE',
-      status: isActiveWeekCompleted ? 'CAUGHT' : 'SEEN',
-      firstChords: `${activeStd.defaultKey}maj7 ...`,
-      jamCallNotes: `Practiced during active shed rotation. Default key: ${activeStd.defaultKey}.`,
-      unlockedAt: isActiveWeekCompleted ? new Date().toISOString() : null,
-      timesPracticed: 1,
-      practiceCount: 1,
-      isCustom: true,
-    };
-    list.push(newEntry);
-    hasChanges = true;
   }
 
-  if (hasChanges || !raw) {
-    savePokedex(list);
+  const catalogIds = new Set<string>();
+  const merged: RepertoireStandard[] = [];
+
+  for (const [title, defaultKey, style, composer] of CATALOG_STANDARDS_TUPLES) {
+    const id = standardIdFromTitle(title);
+    if (catalogIds.has(id)) continue;
+    catalogIds.add(id);
+
+    const saved = storedMap.get(id);
+    if (saved) {
+      merged.push(saved);
+    } else {
+      merged.push({
+        id,
+        title,
+        composer,
+        defaultKey,
+        knownKeys: [defaultKey],
+        style,
+        notes: '',
+        isKnown: false,
+        isCustom: false,
+        updatedAt: '',
+      });
+    }
   }
 
-  return list;
+  // Append custom user-added standards not in the static catalog
+  for (const [id, saved] of storedMap.entries()) {
+    if (!catalogIds.has(id)) {
+      merged.push(saved);
+    }
+  }
+
+  return merged.sort((a, b) => a.title.localeCompare(b.title));
 }
 
-/**
- * Returns all Pokédex standards, sorted by dexNumber by default.
- */
-export function getPokedexStandards(): PokedexStandard[] {
-  return syncPokedexWithPracticeHistory();
-}
-
-/**
- * Finds a standard by ID.
- */
-export function getPokedexStandardById(id: string): PokedexStandard | null {
-  const list = getPokedexStandards();
-  return list.find((s) => s.id === id) || null;
-}
-
-/**
- * Toggles a standard's status between CAUGHT and LOCKED.
- * Allows user to manually check off tunes they already know or did.
- */
-export function toggleStandardCaught(
-  id: string,
-  forceCaught?: boolean
-): PokedexStandard | null {
-  const list = getPokedexStandards();
-  const index = list.findIndex((s) => s.id === id);
-  if (index === -1) return null;
-
-  const current = list[index];
-  const newStatus =
-    forceCaught !== undefined
-      ? forceCaught
-        ? 'CAUGHT'
-        : 'LOCKED'
-      : current.status === 'CAUGHT'
-      ? 'LOCKED'
-      : 'CAUGHT';
-
-  const updated: PokedexStandard = {
-    ...current,
-    status: newStatus,
-    unlockedAt:
-      newStatus === 'CAUGHT'
-        ? current.unlockedAt || new Date().toISOString()
-        : null,
+export function getPokedexStats(standards?: RepertoireStandard[]): RepertoireStats {
+  const list = standards ?? getPokedexStandards();
+  const byStyle: Record<StandardStyle, number> = {
+    SWING: 0,
+    BALLAD: 0,
+    BOSSA: 0,
+    BEBOP: 0,
+    BLUES: 0,
+    WALTZ: 0,
+    LATIN: 0,
+    MODAL: 0,
   };
 
-  list[index] = updated;
-  savePokedex(list);
-  return updated;
-}
-
-/**
- * Updates a standard's mastered keys (12 keys).
- */
-export function updateStandardMasteredKeys(
-  id: string,
-  keys: PitchKey[]
-): PokedexStandard | null {
-  const list = getPokedexStandards();
-  const index = list.findIndex((s) => s.id === id);
-  if (index === -1) return null;
-
-  const updated: PokedexStandard = {
-    ...list[index],
-    masteredKeys: keys,
-    // Knowing keys implies it's in your repertoire!
-    status: keys.length > 0 ? 'CAUGHT' : list[index].status,
-    unlockedAt:
-      keys.length > 0 && !list[index].unlockedAt
-        ? new Date().toISOString()
-        : list[index].unlockedAt,
-  };
-
-  list[index] = updated;
-  savePokedex(list);
-  return updated;
-}
-
-/**
- * Updates personal notes for a standard.
- */
-export function updateStandardNotes(
-  id: string,
-  personalNotes: string
-): PokedexStandard | null {
-  const list = getPokedexStandards();
-  const index = list.findIndex((s) => s.id === id);
-  if (index === -1) return null;
-
-  const updated: PokedexStandard = {
-    ...list[index],
-    personalNotes,
-  };
-
-  list[index] = updated;
-  savePokedex(list);
-  return updated;
-}
-
-/**
- * Adds a new custom standard manually.
- */
-export function addCustomStandard(
-  data: Omit<PokedexStandard, 'id' | 'dexNumber'>
-): PokedexStandard {
-  const list = getPokedexStandards();
-  const maxDexNum = list.reduce((max, s) => Math.max(max, s.dexNumber || 0), 0);
-
-  const newEntry: PokedexStandard = {
-    ...data,
-    id: `dex_custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    dexNumber: maxDexNum + 1,
-    status: data.status || 'CAUGHT',
-    unlockedAt: data.unlockedAt || new Date().toISOString(),
-    isCustom: true,
-  };
-
-  list.push(newEntry);
-  savePokedex(list);
-  return newEntry;
-}
-
-/**
- * Deletes a custom standard from the Dex.
- */
-export function deleteCustomStandard(id: string): boolean {
-  const list = getPokedexStandards();
-  const filtered = list.filter((s) => s.id !== id);
-  if (filtered.length === list.length) return false;
-
-  savePokedex(filtered);
-  return true;
-}
-
-/**
- * Calculates current Pokédex completion stats.
- */
-export function getPokedexStats(): PokedexStats {
-  const list = getPokedexStandards();
-  const totalCount = list.length;
-  const caughtCount = list.filter((s) => s.status === 'CAUGHT').length;
-  const seenCount = list.filter((s) => s.status === 'SEEN').length;
-  const lockedCount = list.filter((s) => s.status === 'LOCKED').length;
-  const completionPercentage =
-    totalCount > 0 ? Math.round((caughtCount / totalCount) * 100) : 0;
+  let knownCount = 0;
+  for (const s of list) {
+    if (s.isKnown) {
+      knownCount += 1;
+      byStyle[s.style] = (byStyle[s.style] || 0) + 1;
+    }
+  }
 
   return {
-    totalCount,
-    caughtCount,
-    seenCount,
-    lockedCount,
-    completionPercentage,
+    knownCount,
+    totalCatalogBenchmark: TOTAL_KNOWN_STANDARDS_BENCHMARK,
+    catalogSeededCount: list.length,
+    byStyle,
   };
 }
 
-/**
- * Directly sets a Pokédex standard as the Shed Engine's current Active Standard.
- */
-export function setPokedexStandardAsActive(
-  standard: PokedexStandard,
-  cycleDays: 7 | 10 | 14 = 14
-): void {
-  rotateActiveStandard(standard.title, standard.defaultKey, cycleDays);
+export function toggleStandardCaught(
+  id: string,
+  forceKnown?: boolean
+): RepertoireStandard | null {
+  const all = getPokedexStandards();
+  const target = all.find((s) => s.id === id);
+  if (!target) return null;
+
+  const nextKnown = forceKnown !== undefined ? forceKnown : !target.isKnown;
+  const updated: RepertoireStandard = {
+    ...target,
+    isKnown: nextKnown,
+    knownKeys:
+      target.knownKeys.length > 0 ? target.knownKeys : [target.defaultKey],
+    updatedAt: new Date().toISOString(),
+  };
+
+  persistRow(updated);
+  return updated;
 }
+
+export function updateStandardMasteredKeys(
+  id: string,
+  keys: PitchKey[],
+  defaultKey?: PitchKey
+): RepertoireStandard | null {
+  const all = getPokedexStandards();
+  const target = all.find((s) => s.id === id);
+  if (!target) return null;
+
+  const resolvedDefault = defaultKey ?? target.defaultKey;
+  const safeKeys = keys.length > 0 ? keys : [resolvedDefault];
+
+  const updated: RepertoireStandard = {
+    ...target,
+    defaultKey: resolvedDefault,
+    knownKeys: safeKeys,
+    isKnown: true,
+    updatedAt: new Date().toISOString(),
+  };
+
+  persistRow(updated);
+  return updated;
+}
+
+export function updateStandardPersonalNotes(
+  id: string,
+  notes: string,
+  style?: StandardStyle
+): RepertoireStandard | null {
+  const all = getPokedexStandards();
+  const target = all.find((s) => s.id === id);
+  if (!target) return null;
+
+  const updated: RepertoireStandard = {
+    ...target,
+    notes: notes.trim(),
+    style: style ?? target.style,
+    updatedAt: new Date().toISOString(),
+  };
+
+  persistRow(updated);
+  return updated;
+}
+
+export function addCustomPokedexStandard(input: {
+  title: string;
+  composer?: string;
+  defaultKey: PitchKey;
+  knownKeys?: PitchKey[];
+  style: StandardStyle;
+  notes?: string;
+}): RepertoireStandard {
+  const cleanTitle = input.title.trim();
+  const id = standardIdFromTitle(cleanTitle);
+  const now = new Date().toISOString();
+
+  const created: RepertoireStandard = {
+    id,
+    title: cleanTitle,
+    composer: (input.composer || '').trim(),
+    defaultKey: input.defaultKey,
+    knownKeys:
+      input.knownKeys && input.knownKeys.length > 0
+        ? input.knownKeys
+        : [input.defaultKey],
+    style: input.style,
+    notes: (input.notes || '').trim(),
+    isKnown: true,
+    isCustom: true,
+    updatedAt: now,
+  };
+
+  persistRow(created);
+  return created;
+}
+
+/**
+ * Returns only user-saved / known repertoire rows (excludes untouched catalog defaults)
+ * so CloudSyncService only pushes meaningful rows to Supabase.
+ */
+export function getStoredRepertoireStandards(): RepertoireStandard[] {
+  return Array.from(readStoredRows().values());
+}
+
+export function deleteCustomStandard(id: string, skipCloudPush = false): void {
+  ensureRepertoireTable();
+  if (sqliteDb) {
+    try {
+      sqliteDb.runSync('DELETE FROM repertoire_standards WHERE id = ?;', [id]);
+    } catch (err) {
+      console.warn('[RepertoireRepo] SQLite delete error:', err);
+    }
+  }
+  const map = readStoredRows();
+  map.delete(id);
+  setAppSetting(REPERTOIRE_WEB_MIRROR_KEY, JSON.stringify(Array.from(map.values())));
+
+  if (!skipCloudPush && onCloudDeleteStandard) {
+    onCloudDeleteStandard(id);
+  }
+}
+
+export function upsertLocalRepertoireFromCloud(cloudItems: RepertoireStandard[]): void {
+  ensureRepertoireTable();
+  const map = readStoredRows();
+  for (const item of cloudItems) {
+    const existing = map.get(item.id);
+    if (!existing || new Date(item.updatedAt) >= new Date(existing.updatedAt || 0)) {
+      persistRow(item, map, true);
+    }
+  }
+}
+
+export function upsertSingleRepertoireFromCloud(item: RepertoireStandard): boolean {
+  ensureRepertoireTable();
+  const map = readStoredRows();
+  const existing = map.get(item.id);
+  if (!existing || new Date(item.updatedAt) >= new Date(existing.updatedAt || 0)) {
+    persistRow(item, map, true);
+    return true;
+  }
+  return false;
+}
+
+export function deleteLocalRepertoireFromCloud(id: string): void {
+  deleteCustomStandard(id, true);
+}
+
+registerPracticeLogRecordedListener(() => {
+  getPokedexStandards();
+});
