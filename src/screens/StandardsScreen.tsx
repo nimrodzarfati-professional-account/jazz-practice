@@ -152,7 +152,10 @@ export const StandardsScreen: React.FC = () => {
       <View
         style={[
           styles.row,
-          { borderBottomColor: colors.recessedSurface },
+          {
+            backgroundColor: colors.cardSurface,
+            borderColor: colors.inkBlack,
+          },
         ]}
       >
         <Pressable
@@ -167,7 +170,7 @@ export const StandardsScreen: React.FC = () => {
               styles.checkbox,
               {
                 borderColor: colors.inkBlack,
-                backgroundColor: item.isKnown ? colors.primary : colors.cardSurface,
+                backgroundColor: item.isKnown ? colors.primary : colors.recessedSurface,
               },
             ]}
           >
@@ -193,7 +196,7 @@ export const StandardsScreen: React.FC = () => {
                   styles.tuneTitle,
                   { color: colors.inkBlack },
                 ]}
-                numberOfLines={1}
+                numberOfLines={2}
               >
                 {item.title}
               </Text>
@@ -410,7 +413,7 @@ export const StandardsScreen: React.FC = () => {
                 />
               </View>
 
-              <View style={styles.listHeaderMeta}>
+              <View style={[styles.listHeaderMeta, { borderTopColor: colors.recessedSurface }]}>
                 <Text style={[typography.stampSmall, { color: colors.inkMuted }]}>
                   {tab === 'KNOWN'
                     ? `SHOWING ${filteredList.length} KNOWN ${
@@ -561,20 +564,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1.5,
-    borderTopColor: '#D6C7B2',
     paddingTop: 8,
     marginTop: 2,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8DCC4',
-    borderLeftWidth: 2,
-    borderRightWidth: 2,
-    borderBottomWidth: 1.5,
-    borderColor: '#1A1412',
+    borderWidth: 1.5,
+    marginBottom: 6,
     paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     gap: 10,
   },
   checkHitbox: {
@@ -608,7 +607,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tuneTitle: {
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 20,
     flexShrink: 1,
   },
   subMeta: {
