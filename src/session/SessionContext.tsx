@@ -83,6 +83,7 @@ export interface SessionActions {
   finishSession: () => void;
   resumeStale: () => void;
   startNow: (exerciseId: string) => void;
+  startMultipleNow: (exerciseIds: string[], autoStartTimer?: boolean) => void;
   setBpm: (delta: number) => void;
   toggleMetronome: () => void;
   setVoice: (voice: MetronomeVoice) => void;
@@ -676,6 +677,69 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       retuneMetronome(next);
     };
 
+    const startMultipleNow = (exerciseIds: string[], autoStartTimer: boolean = true) => {
+      if (exerciseIds.length === 0) return;
+      let p = working();
+      if (p.status === 'complete') {
+        p = freshSuggestion(p.config);
+        setStaleRunning(false);
+      }
+
+      const selectedBlocks: SessionBlock[] = [];
+      const idSet = new Set(exerciseIds);
+
+      for (const id of exerciseIds) {
+        const exercise = exMapRef.current.get(id);
+        if (!exercise) continue;
+        const existing = p.blocks.find((b) => b.exerciseId === id);
+        const block = existing
+          ? existing.status === 'pending'
+            ? existing
+            : resetBlock(existing)
+          : newBlock(id, exercise.durationMinutes);
+        selectedBlocks.push(block);
+      }
+
+      if (selectedBlocks.length === 0) return;
+
+      const startedNow = nowIso();
+      let next: SessionPlan;
+
+      if (p.status === 'building') {
+        const remaining = p.blocks.filter((b) => !idSet.has(b.exerciseId));
+        next = {
+          ...p,
+          blocks: [...selectedBlocks, ...remaining],
+          isCustomized: true,
+          status: autoStartTimer ? 'running' : 'building',
+          startedAt: autoStartTimer ? startedNow : p.startedAt,
+          currentIndex: 0,
+          runningSince: autoStartTimer ? startedNow : null,
+        };
+      } else {
+        const paused = foldRunning(p, Date.now());
+        const remaining = paused.blocks.filter((b) => !idSet.has(b.exerciseId));
+        const currentId = paused.blocks[paused.currentIndex]?.exerciseId;
+        const insertAt =
+          (currentId ? remaining.findIndex((b) => b.exerciseId === currentId) : -1) + 1;
+        remaining.splice(insertAt, 0, ...selectedBlocks);
+        next = {
+          ...paused,
+          blocks: remaining,
+          isCustomized: true,
+          currentIndex: autoStartTimer ? insertAt : paused.currentIndex,
+          runningSince: autoStartTimer ? startedNow : paused.runningSince,
+        };
+      }
+
+      commit(next);
+      if (autoStartTimer) {
+        timerOwnerRef.current = true;
+        setNowMs(Date.now());
+        retuneMetronome(next);
+      }
+    };
+
     /** After the first cloud pull: re-read everything, apply the day-boundary rules, re-arm the reminder. */
     const reconcileAfterPull = () => {
       reloadFromDb();
@@ -776,6 +840,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       finishSession,
       resumeStale: () => setStaleRunning(false),
       startNow,
+      startMultipleNow,
       setBpm,
       toggleMetronome,
       setVoice,

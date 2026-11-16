@@ -5,6 +5,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { useSession } from '../../session/SessionContext';
 import { ResolvedBlock } from '../../types/models';
 import { categoryLabel } from '../../utils/format';
+import { isOverdueRotationExercise } from '../../services/CrateUtils';
 import { CreamBlock } from '../CreamBlock';
 import { SectionHeader } from '../SectionHeader';
 import { StampBadge } from '../StampBadge';
@@ -90,6 +91,9 @@ const PlanRow: React.FC<PlanRowProps> = ({ block, mode, isFirst, isLast }) => {
         <StampBadge label={exercise.context} type={exercise.context} />
         <StampBadge label={categoryLabel(exercise.category)} type={exercise.category} />
         {exercise.isHomework && <StampBadge label="THIS WEEK" tone="primary" filled />}
+        {isOverdueRotationExercise(exercise, 7) && !exercise.isHomework && (
+          <StampBadge label="⚠️ OVERDUE" tone="secondary" />
+        )}
       </View>
     </View>
   );

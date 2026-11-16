@@ -38,6 +38,17 @@ let onCloudPushPracticeLog: ((log: SessionLogEntry) => void) | null = null;
 let onCloudPushUserState: ((state: UserSyncState) => void) | null = null;
 let onCloudPushSessionPlan: ((p: SessionPlan) => void) | null = null;
 
+let onPracticeLogRecorded: ((entry: SessionLogEntry) => void) | null = null;
+let onStandardRotated: ((standard: ActiveStandard) => void) | null = null;
+
+export function registerPracticeLogRecordedListener(fn: (entry: SessionLogEntry) => void): void {
+  onPracticeLogRecorded = fn;
+}
+
+export function registerStandardRotatedListener(fn: (standard: ActiveStandard) => void): void {
+  onStandardRotated = fn;
+}
+
 export function registerCloudSyncHandlers(handlers: {
   pushExercise: (ex: Exercise) => void;
   deleteExercise: (id: string) => void;
@@ -852,6 +863,9 @@ export function rotateActiveStandard(
   if (onCloudPushStandard) {
     onCloudPushStandard(updatedStd);
   }
+  if (onStandardRotated) {
+    onStandardRotated(updatedStd);
+  }
   return updatedStd;
 }
 
@@ -1216,6 +1230,9 @@ export function logPracticeSession(
   upsertLocalPracticeLogsFromCloud([entry]);
   if (onCloudPushPracticeLog) {
     onCloudPushPracticeLog(entry);
+  }
+  if (onPracticeLogRecorded) {
+    onPracticeLogRecorded(entry);
   }
   return entry;
 }

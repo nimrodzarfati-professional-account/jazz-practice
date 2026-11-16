@@ -7,11 +7,15 @@ import { HistoryPanel } from '../components/progress/HistoryPanel';
 import { ReminderRow } from '../components/progress/ReminderRow';
 import { SettingsCard } from '../components/progress/SettingsCard';
 
-export const ProgressScreen: React.FC = () => {
+interface ProgressScreenProps {
+  onOpenStandards?: () => void;
+}
+
+export const ProgressScreen: React.FC<ProgressScreenProps> = ({ onOpenStandards }) => {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
 
-  const song = <CurrentSongCard />;
+  const song = <CurrentSongCard onOpenDex={onOpenStandards} />;
   const history = <HistoryPanel />;
   const extras = (
     <>

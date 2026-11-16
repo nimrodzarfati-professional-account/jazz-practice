@@ -5,6 +5,7 @@ import {
   MusicalContext,
   ScoredExercise,
 } from '../types/models';
+import { getDaysSincePracticed, isOverdueRotationExercise } from './CrateUtils';
 
 const CATEGORY_DECAY_RATE: Record<ExerciseCategory, number> = {
   TRANSCRIBING: 2.2, // Highest momentum sensitivity
@@ -21,10 +22,8 @@ export function calculateUrgencyScore(exercise: Exercise, now: Date = new Date()
     return 99;
   }
 
-  const daysSince = exercise.lastPracticedAt
-    ? Math.max(0, (now.getTime() - new Date(exercise.lastPracticedAt).getTime()) / 86400000)
-    : 7; // Default 7 days if never practiced
-
+  const daysSince = Math.min(60, getDaysSincePracticed(exercise, now));
+  const isOverdue = isOverdueRotationExercise(exercise, 7, now);
   const decayRate = CATEGORY_DECAY_RATE[exercise.category];
 
   // Only apply 12-key deficit bonus if the exercise actually uses keys
@@ -32,13 +31,23 @@ export function calculateUrgencyScore(exercise: Exercise, now: Date = new Date()
     ? ((12 - exercise.masteredKeys.length) / 12) * 10
     : 0;
 
+  // Overdue drills receive a significant boost so they rank ahead of normal rotation drills
+  const overdueBonus = isOverdue ? 35 : 0;
+
   const rawScore =
     exercise.basePriority * 5 +
     daysSince * decayRate * 4 +
     exercise.skippedCount * 8 +
-    keyDeficitBonus;
+    keyDeficitBonus +
+    overdueBonus;
 
-  return Math.max(1, Math.min(99, Math.round(rawScore)));
+  // If overdue, score is bounded between 80 and 95 (homework is 99)
+  if (isOverdue) {
+    return Math.max(80, Math.min(95, Math.round(rawScore)));
+  }
+
+  // Normal drills are bounded between 1 and 79
+  return Math.max(1, Math.min(79, Math.round(rawScore)));
 }
 
 function isSameLocalDate(a: Date, b: Date): boolean {
@@ -106,9 +115,13 @@ export function generateSessionQueue(
     }))
     .sort((a, b) => b.urgencyScore - a.urgencyScore);
 
-  // 6. This-week exercises are always packed first
+  // 6. Priority partitioning:
+  //    a) Weekly Homework (always packed first during its 7-day cycle)
+  //    b) Overdue drills (>7 days without practice, prioritized in shed recommendation)
+  //    c) Other active rotation exercises
   const homework = scored.filter((ex) => ex.isHomework);
-  const others = scored.filter((ex) => !ex.isHomework);
+  const overdue = scored.filter((ex) => !ex.isHomework && isOverdueRotationExercise(ex, 7, now));
+  const others = scored.filter((ex) => !ex.isHomework && !isOverdueRotationExercise(ex, 7, now));
 
   const packedQueue: ScoredExercise[] = [];
   let remainingMinutes = safeMinutes;
@@ -137,6 +150,7 @@ export function generateSessionQueue(
   };
 
   pack(homework, false);
+  pack(overdue, true);
   pack(others, true);
 
   return packedQueue;

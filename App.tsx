@@ -6,7 +6,7 @@
  * - Desktop: left sidebar + centered workstation canvas
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -16,6 +16,7 @@ import { useResponsiveLayout } from './src/hooks/useResponsiveLayout';
 import { SessionProvider, useSession } from './src/session/SessionContext';
 import { TodayScreen } from './src/screens/TodayScreen';
 import { LibraryScreen } from './src/screens/LibraryScreen';
+import { StandardsScreen } from './src/screens/StandardsScreen';
 import { KnowledgeScreen } from './src/screens/KnowledgeScreen';
 import { ProgressScreen } from './src/screens/ProgressScreen';
 import { ScreenErrorBoundary } from './src/components/ScreenErrorBoundary';
@@ -35,19 +36,25 @@ import {
   getLastPracticedStampLabel,
 } from './src/services/CrateUtils';
 
-type TabRoute = 'today' | 'library' | 'knowledge' | 'progress';
+type TabRoute = 'today' | 'library' | 'standards' | 'knowledge' | 'progress';
 
 const TABS: { id: TabRoute; code: string; title: string; subtitle: string }[] = [
   { id: 'today', code: '01', title: 'TODAY', subtitle: 'Plan & practice' },
   { id: 'library', code: '02', title: 'LIBRARY', subtitle: 'Exercises' },
-  { id: 'knowledge', code: '03', title: 'CODEX', subtitle: 'Knowledge Base (MD)' },
-  { id: 'progress', code: '04', title: 'PROGRESS', subtitle: 'History & settings' },
+  { id: 'standards', code: '03', title: 'STANDARDS', subtitle: 'Jazz Pokédex' },
+  { id: 'knowledge', code: '04', title: 'CODEX', subtitle: 'Knowledge Base (MD)' },
+  { id: 'progress', code: '05', title: 'PROGRESS', subtitle: 'History & settings' },
 ];
 
 function AppContent() {
   const { colors, typography } = useTheme();
   const { isDesktop } = useResponsiveLayout();
-  const { exercises, startNow, reloadFromDb } = useSession();
+  const {
+    exercises,
+    startNow,
+    startMultipleNow,
+    reloadFromDb,
+  } = useSession();
   const [activeTab, setActiveTab] = useState<TabRoute>('today');
   const [showOverdueModal, setShowOverdueModal] = useState(false);
   const hasTriggeredOverdueRef = useRef(false);
@@ -61,6 +68,27 @@ function AppContent() {
   const overdueExercises = useMemo(() => {
     return exercises.filter((ex) => isOverdueRotationExercise(ex, 7));
   }, [exercises]);
+
+  const [selectedOverdueIds, setSelectedOverdueIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!showOverdueModal) {
+      setSelectedOverdueIds(new Set());
+    } else {
+      setSelectedOverdueIds((prev) => {
+        if (prev.size === 0) {
+          return new Set(overdueExercises.map((e) => e.id));
+        }
+        const valid = new Set<string>();
+        for (const id of prev) {
+          if (overdueExercises.some((e) => e.id === id)) {
+            valid.add(id);
+          }
+        }
+        return valid;
+      });
+    }
+  }, [showOverdueModal, overdueExercises]);
 
   useEffect(() => {
     if (!hasTriggeredWeekExpiredRef.current && expiredWeekExercises.length > 0) {
@@ -83,15 +111,59 @@ function AppContent() {
     setActiveTab('today');
   };
 
-  const handlePracticeOverdue = (exerciseId: string) => {
+  const handleToggleSelectOverdue = (exerciseId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedOverdueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(exerciseId)) {
+        next.delete(exerciseId);
+      } else {
+        next.add(exerciseId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleAllOverdue = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (selectedOverdueIds.size === overdueExercises.length) {
+      setSelectedOverdueIds(new Set());
+    } else {
+      setSelectedOverdueIds(new Set(overdueExercises.map((e) => e.id)));
+    }
+  };
+
+  const handleStartSelectedShed = () => {
+    const ids = Array.from(selectedOverdueIds);
+    if (ids.length === 0) {
+      handleDismissOverdue();
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setShowOverdueModal(false);
-    handleStartNow(exerciseId);
+    startMultipleNow(ids, true);
+    setActiveTab('today');
+  };
+
+  const handleAddSelectedToPlan = () => {
+    const ids = Array.from(selectedOverdueIds);
+    if (ids.length === 0) {
+      handleDismissOverdue();
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowOverdueModal(false);
+    startMultipleNow(ids, false);
+    setActiveTab('today');
   };
 
   const handleSaveForLater = (exerciseId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     toggleExerciseRotation(exerciseId, false);
     reloadFromDb();
+    if (overdueExercises.length <= 1) {
+      setShowOverdueModal(false);
+    }
   };
 
   const handleSaveAllForLater = () => {
@@ -160,10 +232,12 @@ function AppContent() {
         onStartNow={handleStartNow}
         onOpenKnowledge={() => setActiveTab('knowledge')}
       />
+    ) : activeTab === 'standards' ? (
+      <StandardsScreen />
     ) : activeTab === 'knowledge' ? (
       <KnowledgeScreen onStartExercise={handleStartNow} />
     ) : (
-      <ProgressScreen />
+      <ProgressScreen onOpenStandards={() => setActiveTab('standards')} />
     );
 
   const navItems = TABS.map((tab) => (
@@ -301,16 +375,28 @@ function AppContent() {
       </StampModal>
 
       <StampModal
-        visible={showOverdueModal}
+        visible={showOverdueModal && overdueExercises.length > 0}
         title="OVERDUE DRILLS IN ROTATION"
         subtitle={
           overdueExercises.length === 1
-            ? "1 drill in your active rotation hasn't been practiced in over 7 days:"
-            : `${overdueExercises.length} drills in your active rotation haven't been practiced in over 7 days:`
+            ? "1 drill in your active rotation hasn't been practiced in over 7 days. Select to shed:"
+            : `${overdueExercises.length} drills in your active rotation haven't been practiced in over 7 days. Select drills to shed:`
         }
         onClose={handleDismissOverdue}
         actions={
           <>
+            {overdueExercises.length > 1 && (
+              <StampButton
+                label={
+                  selectedOverdueIds.size === overdueExercises.length
+                    ? 'DESELECT ALL'
+                    : 'SELECT ALL'
+                }
+                variant="secondary"
+                size="sm"
+                onPress={handleToggleAllOverdue}
+              />
+            )}
             {overdueExercises.length > 1 && (
               <StampButton
                 label="SAVE ALL FOR LATER"
@@ -319,55 +405,90 @@ function AppContent() {
                 onPress={handleSaveAllForLater}
               />
             )}
+            {selectedOverdueIds.size > 0 && (
+              <StampButton
+                label="ADD TO PLAN"
+                variant="tertiary"
+                size="sm"
+                onPress={handleAddSelectedToPlan}
+              />
+            )}
             <StampButton
-              label="KEEP IN ROTATION"
+              label={
+                selectedOverdueIds.size > 0
+                  ? `▶ START SHED (${selectedOverdueIds.size})`
+                  : 'KEEP IN ROTATION'
+              }
               variant="primary"
               size="sm"
-              onPress={handleDismissOverdue}
+              onPress={
+                selectedOverdueIds.size > 0
+                  ? handleStartSelectedShed
+                  : handleDismissOverdue
+              }
             />
           </>
         }
       >
-        {overdueExercises.map((item) => (
-          <View
-            key={item.id}
-            style={[
-              styles.overdueCard,
-              { borderColor: colors.inkBlack, backgroundColor: colors.recessedSurface },
-            ]}
-          >
-            <View style={styles.overdueInfo}>
-              <View style={styles.overdueBadges}>
-                <StampBadge label={item.context} type={item.context} />
-                <StampBadge label={categoryLabel(item.category)} type={item.category} />
-                <StampBadge
-                  label={`⚠️ ${getLastPracticedStampLabel(item.lastPracticedAt)}`}
-                  tone="secondary"
+        {overdueExercises.map((item) => {
+          const isSelected = selectedOverdueIds.has(item.id);
+          return (
+            <View
+              key={item.id}
+              style={[
+                styles.overdueCard,
+                {
+                  borderColor: isSelected ? colors.primary : colors.inkBlack,
+                  borderWidth: isSelected ? 2 : 1.5,
+                  backgroundColor: colors.recessedSurface,
+                },
+              ]}
+            >
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel={`${item.title}, ${isSelected ? 'selected to shed' : 'not selected'}`}
+                accessibilityState={{ checked: isSelected }}
+                onPress={() => handleToggleSelectOverdue(item.id)}
+                style={styles.overdueInfo}
+              >
+                <View style={styles.overdueBadges}>
+                  <StampBadge label={item.context} type={item.context} />
+                  <StampBadge label={categoryLabel(item.category)} type={item.category} />
+                  <StampBadge
+                    label={`⚠️ ${getLastPracticedStampLabel(item.lastPracticedAt)}`}
+                    tone="secondary"
+                  />
+                  {isSelected && (
+                    <StampBadge label="SELECTED TO SHED" tone="primary" filled />
+                  )}
+                </View>
+                <Text style={[typography.title, styles.overdueTitle, { color: colors.inkBlack }]}>
+                  {item.title}
+                </Text>
+                <Text style={[typography.monoBold, styles.overdueMeta, { color: colors.inkMuted }]}>
+                  {item.durationMinutes} MIN • ♩{item.currentBpm}
+                </Text>
+              </Pressable>
+              <View style={styles.overdueActions}>
+                <StampButton
+                  label={isSelected ? '✓ IN SHED' : '+ SHED'}
+                  variant={isSelected ? 'primary' : 'secondary'}
+                  size="sm"
+                  accessibilityLabel={
+                    isSelected ? `Deselect ${item.title}` : `Select ${item.title} to shed`
+                  }
+                  onPress={() => handleToggleSelectOverdue(item.id)}
+                />
+                <StampButton
+                  label="SAVE FOR LATER"
+                  variant="tertiary"
+                  size="sm"
+                  onPress={() => handleSaveForLater(item.id)}
                 />
               </View>
-              <Text style={[typography.title, styles.overdueTitle, { color: colors.inkBlack }]}>
-                {item.title}
-              </Text>
-              <Text style={[typography.monoBold, styles.overdueMeta, { color: colors.inkMuted }]}>
-                {item.durationMinutes} MIN • ♩{item.currentBpm}
-              </Text>
             </View>
-            <View style={styles.overdueActions}>
-              <StampButton
-                label="▶ PRACTICE"
-                variant="primary"
-                size="sm"
-                onPress={() => handlePracticeOverdue(item.id)}
-              />
-              <StampButton
-                label="SAVE FOR LATER"
-                variant="tertiary"
-                size="sm"
-                onPress={() => handleSaveForLater(item.id)}
-              />
-            </View>
-          </View>
-        ))}
+          );
+        })}
       </StampModal>
     </SafeAreaView>
   );

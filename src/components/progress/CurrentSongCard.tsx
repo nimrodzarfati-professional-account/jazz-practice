@@ -7,7 +7,11 @@ import { CreamBlock } from '../CreamBlock';
 import { StampButton } from '../StampButton';
 import { ChangeSongModal } from './ChangeSongModal';
 
-export const CurrentSongCard: React.FC = () => {
+interface CurrentSongCardProps {
+  onOpenDex?: () => void;
+}
+
+export const CurrentSongCard: React.FC<CurrentSongCardProps> = ({ onOpenDex }) => {
   const { colors, typography } = useTheme();
   const { song } = useSession();
   const [modalOpen, setModalOpen] = useState(false);
@@ -31,6 +35,14 @@ export const CurrentSongCard: React.FC = () => {
       <Text style={[typography.title, styles.title, { color: colors.inkBlack }]}>{songLabel(song)}</Text>
       <View style={styles.actions}>
         <StampButton label="CHANGE SONG" variant="tertiary" size="sm" onPress={() => setModalOpen(true)} />
+        {onOpenDex && (
+          <StampButton
+            label="JAZZ-DEX 📖"
+            variant="secondary"
+            size="sm"
+            onPress={onOpenDex}
+          />
+        )}
       </View>
       <ChangeSongModal visible={modalOpen} onClose={() => setModalOpen(false)} />
     </CreamBlock>
@@ -49,6 +61,8 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
     marginTop: 12,
   },
 });
