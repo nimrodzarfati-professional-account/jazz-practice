@@ -8,6 +8,10 @@ import { StampInput } from '../StampInput';
 import { SegmentedStamp } from '../SegmentedStamp';
 import { StampButton } from '../StampButton';
 import { StampBadge } from '../StampBadge';
+import {
+  getLastPracticedStampLabel,
+  isOverdueRotationExercise,
+} from '../../services/CrateUtils';
 
 type Membership = 'ACTIVE' | 'SAVED' | 'ALL';
 
@@ -74,6 +78,9 @@ export const AddFromLibraryModal: React.FC<AddFromLibraryModalProps> = ({ visibl
         <View>
           {rows.map((ex) => {
             const added = addedIds.has(ex.id);
+            const isOverdue = isOverdueRotationExercise(ex, 7);
+            const lastPracticedLabel = getLastPracticedStampLabel(ex.lastPracticedAt);
+
             return (
               <Pressable
                 key={ex.id}
@@ -89,13 +96,24 @@ export const AddFromLibraryModal: React.FC<AddFromLibraryModalProps> = ({ visibl
                 style={[styles.row, { borderBottomColor: colors.recessedSurface }]}
               >
                 <View style={styles.rowText}>
-                  <Text style={[typography.heading, { color: colors.inkBlack }]} numberOfLines={1}>
-                    {ex.title}
-                  </Text>
-                  <Text style={[typography.mono, { color: colors.inkMuted }]}>
-                    {ex.durationMinutes} MIN • {ex.context}
-                    {ex.inRotation ? '' : ' • SAVED'}
-                  </Text>
+                  <View style={styles.titleRow}>
+                    <Text style={[typography.heading, styles.titleText, { color: colors.inkBlack }]} numberOfLines={1}>
+                      {ex.title}
+                    </Text>
+                    {ex.isHomework && (
+                      <StampBadge label="THIS WEEK" tone="primary" filled />
+                    )}
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={[typography.mono, styles.metaText, { color: colors.inkMuted }]}>
+                      {ex.durationMinutes} MIN • {ex.context}
+                      {ex.inRotation ? '' : ' • SAVED'}
+                    </Text>
+                    <StampBadge
+                      label={isOverdue ? `⚠️ ${lastPracticedLabel}` : lastPracticedLabel}
+                      tone={isOverdue ? 'secondary' : 'neutral'}
+                    />
+                  </View>
                 </View>
                 {added ? (
                   <StampBadge label="✓ ADDED" tone="olive" filled />
@@ -116,12 +134,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    minHeight: 48,
+    minHeight: 52,
     paddingVertical: 8,
     borderBottomWidth: 1.5,
   },
   rowText: {
     flex: 1,
-    gap: 2,
+    gap: 3,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  titleText: {
+    fontSize: 14,
+    lineHeight: 18,
+    flexShrink: 1,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 11,
   },
 });
