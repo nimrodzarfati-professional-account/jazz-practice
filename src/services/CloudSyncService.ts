@@ -1149,13 +1149,17 @@ export async function pullAllFromCloud(): Promise<{
         const cloudStandards = repData.map(cloudRowToRepertoire);
         upsertLocalRepertoireFromCloud(cloudStandards);
 
-        // Push any local repertoire rows not yet on the cloud
-        const cloudIds = new Set(cloudStandards.map((s) => s.id));
-        const localOnly = getStoredRepertoireStandards().filter((s) => !cloudIds.has(s.id));
-        if (localOnly.length > 0) {
+        // Push any local repertoire rows not yet on cloud or newer locally
+        const cloudMap = new Map(cloudStandards.map((s) => [s.id, s]));
+        const localToPush = getStoredRepertoireStandards().filter((local) => {
+          const remote = cloudMap.get(local.id);
+          if (!remote) return true;
+          return new Date(local.updatedAt).getTime() > new Date(remote.updatedAt).getTime();
+        });
+        if (localToPush.length > 0) {
           await client
             .from('repertoire_standards')
-            .upsert(localOnly.map(repertoireToCloudRow));
+            .upsert(localToPush.map(repertoireToCloudRow));
         }
       } else if (!isSchemaOrPolicyError(repError)) {
         console.warn('[CloudSync] Repertoire standards sync notice:', repError);

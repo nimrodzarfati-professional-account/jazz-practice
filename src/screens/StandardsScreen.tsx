@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -36,6 +36,7 @@ import { StampInput } from '../components/StampInput';
 import { Callout } from '../components/Callout';
 import { StandardDetailModal } from '../components/pokedex/StandardDetailModal';
 import { AddStandardModal } from '../components/pokedex/AddStandardModal';
+import { subscribeToRealtimeChanges } from '../services/CloudSyncService';
 
 type RepertoireTab = 'KNOWN' | 'CATALOG';
 
@@ -67,6 +68,13 @@ export const StandardsScreen: React.FC = () => {
       setSelectedStandard(fresh);
     }
   }, [selectedStandard]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToRealtimeChanges(() => {
+      refresh();
+    });
+    return unsubscribe;
+  }, [refresh]);
 
   const stats = useMemo(() => getPokedexStats(standards), [standards]);
   const activeSongNorm = useMemo(
